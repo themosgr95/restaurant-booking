@@ -1,23 +1,17 @@
-import { MembershipRole } from "@prisma/client";
+// src/lib/auth/rbac.ts
 
-const roleRank: Record<MembershipRole, number> = {
+export type MembershipRole = "OWNER" | "MANAGER" | "STAFF";
+
+const roleWeight: Record<MembershipRole, number> = {
   OWNER: 3,
   MANAGER: 2,
   STAFF: 1,
 };
 
-export function hasAtLeastRole(userRole: MembershipRole, minimumRole: MembershipRole) {
-  return roleRank[userRole] >= roleRank[minimumRole];
-}
-
-export function canManageSettings(role: MembershipRole) {
-  return hasAtLeastRole(role, "OWNER");
-}
-
-export function canManageRestaurant(role: MembershipRole) {
-  return hasAtLeastRole(role, "MANAGER");
-}
-
-export function canWorkBookings(role: MembershipRole) {
-  return hasAtLeastRole(role, "STAFF");
+export function hasRole(
+  userRole: MembershipRole | null | undefined,
+  required: MembershipRole
+) {
+  if (!userRole) return false;
+  return roleWeight[userRole] >= roleWeight[required];
 }
