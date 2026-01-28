@@ -46,13 +46,12 @@ model Restaurant {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
 
-  accounts Account[]
-  sessions Session[]
-
+  accounts    Account[]
+  sessions    Session[]
   memberships Membership[]
 
   createdAt DateTime @default(now())
@@ -236,10 +235,9 @@ model Booking {
   startsAt  DateTime
   endsAt    DateTime
 
-  notes                String?
+  notes                 String?
   createdByMembershipId String?
 
-  // Future-proofing for deposits/payments (V1 unused)
   depositAmountCents Int?
   paymentStatus      String?
 
@@ -301,11 +299,11 @@ model BookingPage {
 }
 
 model EmbedWidget {
-  id           String @id @default(cuid())
-  restaurantId String
-  publicKey    String @unique
-  allowedOrigins String?
-  theme        Json?
+  id             String @id @default(cuid())
+  restaurantId    String
+  publicKey       String @unique
+  allowedOrigins  String?
+  theme           Json?
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -316,9 +314,9 @@ model EmbedWidget {
 }
 
 model BookingConfig {
-  id           String  @id @default(cuid())
-  restaurantId String  @unique
-  requiresStaffApproval Boolean @default(false)
+  id                    String  @id @default(cuid())
+  restaurantId           String  @unique
+  requiresStaffApproval  Boolean @default(false)
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 

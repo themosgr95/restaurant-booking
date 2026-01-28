@@ -2,11 +2,9 @@
   "name": "restaurant-booking",
   "version": "0.1.0",
   "private": true,
-
   "engines": {
     "node": ">=20.19.0"
   },
-
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -17,7 +15,6 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio"
   },
-
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
     "@prisma/client": "^6.19.2",
@@ -27,7 +24,6 @@
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
-
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
