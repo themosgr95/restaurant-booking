@@ -4,6 +4,7 @@ import HoursForm from "./hours-form";
 import ClosuresForm from "./closures-form";
 
 export default async function LocationDetailsPage({ params }: { params: { locationId: string } }) {
+  // Fetch the location + hours + holidays
   const location = await prisma.location.findUnique({
     where: { id: params.locationId },
     include: {
@@ -20,6 +21,7 @@ export default async function LocationDetailsPage({ params }: { params: { locati
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="mx-auto max-w-3xl">
         
+        {/* Header with Back Button */}
         <div className="flex items-center gap-4 mb-8">
           <Link href="/staff/dashboard/settings/locations" className="text-sm text-gray-500 hover:text-gray-900">
             ← Back to Locations
@@ -29,6 +31,7 @@ export default async function LocationDetailsPage({ params }: { params: { locati
           </h1>
         </div>
 
+        {/* The two forms we created */}
         <HoursForm locationId={location.id} initialData={location.openingHours} />
         
         <ClosuresForm locationId={location.id} closures={location.specialClosures} />
