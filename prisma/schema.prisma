@@ -26,11 +26,11 @@ enum BookingStatus {
 }
 
 model Restaurant {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  timezone  String   @default("UTC")
-  status    String   @default("active")
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  timezone      String         @default("UTC")
+  status        String         @default("active")
 
   locations     Location[]
   tables        Table[]
@@ -41,21 +41,22 @@ model Restaurant {
   embedWidgets  EmbedWidget[]
   bookingConfig BookingConfig?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model User {
-  id    String  @id @default(cuid())
-  email String  @unique
-  name  String?
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?   // <--- ADDED: Required for Credentials Login
+  name          String?
 
-  accounts    Account[]
-  sessions    Session[]
-  memberships Membership[]
+  accounts      Account[]
+  sessions      Session[]
+  memberships   Membership[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Account {
@@ -135,9 +136,9 @@ model Service {
   locationId      String
   name            String
   durationMinutes Int
-  minPartySize    Int @default(1)
+  minPartySize    Int    @default(1)
   maxPartySize    Int
-  leadTimeMinutes Int @default(0)
+  leadTimeMinutes Int    @default(0)
 
   location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
@@ -165,10 +166,10 @@ model OpeningHour {
 }
 
 model SpecialClosure {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   locationId String
   date       DateTime
-  isClosed   Boolean @default(true)
+  isClosed   Boolean  @default(true)
   opensAt    String?
   closesAt   String?
   note       String?
@@ -182,14 +183,14 @@ model SpecialClosure {
 }
 
 model Table {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   restaurantId String
   locationId   String?
   name         String
   capacityMin  Int
   capacityMax  Int
   isActive     Boolean @default(true)
-  sortOrder    Int @default(0)
+  sortOrder    Int     @default(0)
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -204,14 +205,14 @@ model Table {
 }
 
 model Customer {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   restaurantId String
   email        String?
   phone        String?
   name         String?
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  bookings    Booking[]
+  bookings   Booking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,7 +223,7 @@ model Customer {
 }
 
 model Booking {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   restaurantId String
   locationId   String?
   serviceId    String?
@@ -242,7 +243,7 @@ model Booking {
   paymentStatus      String?
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   tables BookingTable[]
 
@@ -266,7 +267,7 @@ model BookingTable {
 }
 
 model TableLock {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   restaurantId String
   tableId      String?
 
@@ -299,11 +300,11 @@ model BookingPage {
 }
 
 model EmbedWidget {
-  id             String @id @default(cuid())
-  restaurantId    String
-  publicKey       String @unique
-  allowedOrigins  String?
-  theme           Json?
+  id             String  @id @default(cuid())
+  restaurantId   String
+  publicKey      String  @unique
+  allowedOrigins String?
+  theme          Json?
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
@@ -315,8 +316,8 @@ model EmbedWidget {
 
 model BookingConfig {
   id                    String  @id @default(cuid())
-  restaurantId           String  @unique
-  requiresStaffApproval  Boolean @default(false)
+  restaurantId          String  @unique
+  requiresStaffApproval Boolean @default(false)
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
