@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 
-// DELETE a closure
+// DELETE remains the same (it handles ID via URL search params)
 export async function DELETE(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -22,19 +22,23 @@ export async function DELETE(req: Request) {
   }
 }
 
-// CREATE a closure
-export async function POST(req: Request, { params }: { params: { locationId: string } }) {
+// FIX: Update POST to treat params as a Promise
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ locationId: string }> }
+) {
   try {
+    const params = await props.params; // <--- AWAITING PARAMS HERE
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { date, note } = body; // date should be "YYYY-MM-DD" string
+    const { date, note } = body;
 
     await prisma.specialClosure.create({
       data: {
         locationId: params.locationId,
-        date: new Date(date), // Convert string to real Date object
+        date: new Date(date),
         isClosed: true,
         note
       }

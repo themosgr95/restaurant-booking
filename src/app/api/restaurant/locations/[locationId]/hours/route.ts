@@ -3,15 +3,19 @@ import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request, { params }: { params: { locationId: string } }) {
+export async function POST(
+  req: Request,
+  props: { params: Promise<{ locationId: string }> }
+) {
   try {
+    const params = await props.params; // <--- AWAITING PARAMS HERE
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { hours } = body; // Expects an array of opening hours
+    const { hours } = body; 
 
-    // 1. Delete all existing hours for this location (Reset)
+    // 1. Delete all existing hours for this location
     await prisma.openingHour.deleteMany({
       where: { locationId: params.locationId }
     });
