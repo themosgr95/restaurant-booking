@@ -20,7 +20,7 @@ export default function Page() {
           HELLO THEMOS – NEW HOMEPAGE ✅
         </h1>
         <p className="mt-3 text-neutral-600">
-          If you can see this after deploy, Hostinger is building the right repo + file.
+          If you can see this after deploy, Hostinger is building the right file.
         </p>
       </section>
     </main>
