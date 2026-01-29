@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
+import Link from "next/link"; // <--- Added this
 import LogoutButton from "./logout-button";
 import CreateRestaurantForm from "./create-restaurant-form";
 
@@ -12,16 +13,9 @@ export default async function DashboardPage() {
     redirect("/staff");
   }
 
-  // Check if user has any restaurant membership
   const membership = await prisma.membership.findFirst({
-    where: {
-      user: {
-        email: session.user.email
-      }
-    },
-    include: {
-      restaurant: true
-    }
+    where: { user: { email: session.user.email } },
+    include: { restaurant: true }
   });
 
   const restaurant = membership?.restaurant;
@@ -54,7 +48,6 @@ export default async function DashboardPage() {
       <main className="py-10">
         <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
           
-          {/* SCENARIO 1: No Restaurant yet */}
           {!restaurant && (
             <div className="rounded-xl bg-white p-8 shadow-sm border border-gray-200">
               <div className="mb-6">
@@ -65,32 +58,39 @@ export default async function DashboardPage() {
             </div>
           )}
 
-          {/* SCENARIO 2: Has Restaurant (The Dashboard) */}
           {restaurant && (
             <div>
               <h2 className="text-xl font-semibold mb-6">Overview</h2>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <div className="overflow-hidden rounded-xl bg-white shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                  <div className="p-6">
-                    <h3 className="text-base font-semibold leading-6 text-gray-900">
-                      📅 Bookings
-                    </h3>
-                    <p className="mt-2 text-sm text-gray-500">
-                      0 upcoming reservations
-                    </p>
-                  </div>
-                </div>
                 
-                 <div className="overflow-hidden rounded-xl bg-white shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                  <div className="p-6">
-                    <h3 className="text-base font-semibold leading-6 text-gray-900">
-                      ⚙️ Settings
-                    </h3>
-                    <p className="mt-2 text-sm text-gray-500">
-                      Configure tables and hours
-                    </p>
+                {/* Bookings Card - NOW CLICKABLE */}
+                <Link href="/staff/dashboard/bookings" className="block group">
+                  <div className="overflow-hidden rounded-xl bg-white shadow-sm border border-gray-200 group-hover:shadow-md transition-shadow">
+                    <div className="p-6">
+                      <h3 className="text-base font-semibold leading-6 text-gray-900 group-hover:text-indigo-600">
+                        📅 Bookings
+                      </h3>
+                      <p className="mt-2 text-sm text-gray-500">
+                        View upcoming reservations
+                      </p>
+                    </div>
                   </div>
-                </div>
+                </Link>
+                
+                {/* Settings Card - NOW CLICKABLE */}
+                <Link href="/staff/dashboard/settings" className="block group">
+                  <div className="overflow-hidden rounded-xl bg-white shadow-sm border border-gray-200 group-hover:shadow-md transition-shadow">
+                    <div className="p-6">
+                      <h3 className="text-base font-semibold leading-6 text-gray-900 group-hover:text-indigo-600">
+                        ⚙️ Settings
+                      </h3>
+                      <p className="mt-2 text-sm text-gray-500">
+                        Configure tables and hours
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+
               </div>
             </div>
           )}

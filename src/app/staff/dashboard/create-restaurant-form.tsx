@@ -13,6 +13,7 @@ export default function CreateRestaurantForm() {
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setName(val);
+    // Simple slugify: "My Restaurant" -> "my-restaurant"
     setSlug(val.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""));
   };
 
@@ -34,7 +35,7 @@ export default function CreateRestaurantForm() {
         throw new Error(data.error || "Failed to create");
       }
 
-      router.refresh(); 
+      router.refresh(); // Refresh to show the dashboard view!
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
