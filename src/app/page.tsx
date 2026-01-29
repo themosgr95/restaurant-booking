@@ -5,7 +5,7 @@ export default function Page() {
     <main className="min-h-screen bg-white text-neutral-900">
       <header className="border-b border-neutral-200">
         <div className="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
-          <div className="font-semibold">BookingSaaS</div>
+          <div className="font-semibold">BookingSaas</div>
           <Link
             href="/staff"
             className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-white hover:bg-neutral-800"
@@ -16,8 +16,9 @@ export default function Page() {
       </header>
 
       <section className="mx-auto max-w-5xl px-4 py-14">
+        {/* Wrapped in curly braces to satisfy the linter */}
         <h1 className="text-4xl font-semibold tracking-tight">
-          HELLO THEMOS – NEW HOMEPAGE ✅
+          {"HELLO THEMOS 👨‍💻 NEW HOMEPAGE ✅"}
         </h1>
         <p className="mt-3 text-neutral-600">
           If you can see this after deploy, Hostinger is building the right file.
