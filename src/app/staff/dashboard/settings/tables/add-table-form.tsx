@@ -14,6 +14,7 @@ export default function AddTableForm({ locationId }: { locationId: string }) {
     e.preventDefault();
     setLoading(true);
 
+    // This sends "name" and "capacity" to your API
     const res = await fetch(`/api/restaurant/locations/${locationId}/tables`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
