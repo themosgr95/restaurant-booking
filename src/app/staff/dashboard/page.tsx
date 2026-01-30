@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth/options";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
 import Link from "next/link"; // <--- Added this
-import LogoutButton from "./logout-button";
+import LogoutButton from "./sign-out-btn";
 import CreateRestaurantForm from "./create-restaurant-form";
 
 export default async function DashboardPage() {
