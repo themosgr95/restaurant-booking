@@ -8,31 +8,26 @@ export async function GET(req: Request) {
   const date = searchParams.get("date"); // YYYY-MM-DD
   const time = searchParams.get("time"); // HH:mm
   const guests = parseInt(searchParams.get("guests") || "2");
+  const locationId = searchParams.get("locationId"); // <--- NEW PARAMETER
 
-  if (!date || !time) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  if (!date || !time || !locationId) {
+    return NextResponse.json({ error: "Missing date, time, or location" }, { status: 400 });
+  }
 
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // 1. Get the Restaurant
-  const membership = await prisma.membership.findFirst({
-    where: { user: { email: session.user.email } },
-    include: { restaurant: true }
-  });
-  if (!membership) return NextResponse.json({ error: "No restaurant" }, { status: 400 });
-
-  // 2. Define the Booking Slot (Assume 90 min duration)
+  // 1. Define the Booking Slot (Assume 90 min duration)
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + 90 * 60000);
 
-  // 3. Find ALL tables that match capacity
+  // 2. Find tables ONLY for the selected location
   const tables = await prisma.table.findMany({
     where: {
-      location: { restaurantId: membership.restaurantId },
+      locationId: locationId, // <--- STRICT FILTERING HERE
       capacity: { gte: guests }
     },
     include: {
-      // FIX: Changed 'bookings' to 'bookingTables' to match your schema
       bookingTables: {
         where: {
           booking: {
@@ -44,10 +39,9 @@ export async function GET(req: Request) {
     }
   });
 
-  // 4. Filter Available Tables & Calculate "Next Booking"
+  // 3. Filter Available Tables & Calculate "Next Booking"
   const availableTables = tables.map(table => {
     // A. Check for overlapping bookings
-    // FIX: Iterate over 'bookingTables'
     const isOccupied = table.bookingTables.some(bt => {
       const bStart = new Date(`${date}T${bt.booking.time}:00`);
       const bEnd = new Date(bStart.getTime() + 90 * 60000); // 90 min duration
@@ -55,10 +49,9 @@ export async function GET(req: Request) {
       return (bookingStart < bEnd && bookingEnd > bStart);
     });
 
-    if (isOccupied) return null; // Filter this table out
+    if (isOccupied) return null;
 
     // B. Find the NEXT reservation on this table
-    // FIX: Iterate over 'bookingTables'
     const futureBookings = table.bookingTables
       .map(bt => new Date(`${date}T${bt.booking.time}:00`))
       .filter(d => d > bookingStart)
@@ -72,6 +65,7 @@ export async function GET(req: Request) {
       id: table.id,
       name: table.name,
       capacity: table.capacity,
+      locationId: table.locationId, // Ensure frontend receives this
       nextBookingTime
     };
   }).filter(Boolean); // Remove nulls

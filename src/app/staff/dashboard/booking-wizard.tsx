@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 function StepOne({ onNext, onClose, locations }: any) {
   // 1. Default Time: 1 Hour from now
   const oneHourLater = new Date(new Date().getTime() + 60 * 60 * 1000);
-  const defaultTime = oneHourLater.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); // HH:MM format
+  const defaultTime = oneHourLater.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState<Date>(today);
@@ -20,6 +20,23 @@ function StepOne({ onNext, onClose, locations }: any) {
   const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
+  // --- TRAFFIC LIGHT COLOR LOGIC ---
+  const getDayStatus = (day: number) => {
+    // Mock logic: Sundays closed, 15th full, 20-25 limited
+    if (day % 7 === 0) return "red"; 
+    if (day === 15) return "orange"; 
+    if (day >= 20 && day <= 25) return "purple"; 
+    return "green";
+  };
+
+  const statusColors: any = {
+    red: "bg-red-50 text-red-400 cursor-not-allowed hover:bg-red-50",
+    orange: "bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100",
+    purple: "bg-purple-50 text-purple-600 border border-purple-200 hover:bg-purple-100",
+    green: "hover:bg-gray-100 text-gray-700"
+  };
+  // --------------------------------
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -27,7 +44,7 @@ function StepOne({ onNext, onClose, locations }: any) {
         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
-      {/* LOCATION SELECTOR (First thing!) */}
+      {/* LOCATION SELECTOR */}
       <div>
         <label className="block text-xs font-bold text-gray-500 mb-1">1. Select Location</label>
         <div className="relative">
@@ -46,7 +63,7 @@ function StepOne({ onNext, onClose, locations }: any) {
         </div>
       </div>
 
-      {/* CALENDAR */}
+      {/* CALENDAR (Only visible if Location selected) */}
       <div className={`transition-opacity duration-300 ${!locationId ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
         <div className="border rounded-xl p-4">
           <div className="flex justify-between mb-4 font-bold text-gray-900">
@@ -54,25 +71,35 @@ function StepOne({ onNext, onClose, locations }: any) {
             <span>{selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
             <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() + 1)))}>→</button>
           </div>
+          
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-400 mb-2">
              <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
           </div>
+          
           <div className="grid grid-cols-7 gap-1">
             {Array(firstDay).fill(null).map((_, i) => <div key={`empty-${i}`} />)}
             {days.map(d => {
+               const status = getDayStatus(d);
                const isSelected = d === selectedDate.getDate();
                return (
                  <button
                    key={d}
                    onClick={() => setSelectedDate(new Date(selectedDate.setDate(d)))}
                    className={`h-9 rounded-lg text-sm font-bold transition-all ${
-                      isSelected ? "bg-black text-white shadow-md" : "hover:bg-gray-100 text-gray-700"
+                      isSelected ? "bg-black text-white shadow-md scale-105" : statusColors[status]
                    }`}
                  >
                    {d}
                  </button>
                );
             })}
+          </div>
+
+          {/* LEGEND */}
+          <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-500 justify-center uppercase tracking-wide">
+             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-400"></div> Closed</span>
+             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-400"></div> Full</span>
+             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-400"></div> Limited</span>
           </div>
         </div>
 
@@ -117,15 +144,10 @@ function StepTwo({ data, onBack, onNext }: any) {
   useEffect(() => {
     const fetchTables = async () => {
        const dateStr = data.date.toISOString().split('T')[0];
-       // Note: In a real app, pass locationId to API to filter strictly. 
-       // For now, our API filters by "restaurant", so we filter client-side or assume location fits.
-       const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}`);
+       // FIX: We now pass locationId to the API for strict server-side filtering
+       const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
        const json = await res.json();
-       // Filter tables by the selected location
-       const filtered = json.filter((t: any) => t.locationId === data.locationId); 
-       // (Note: You might need to add locationId to the Availability API response for this to work perfectly. 
-       // If the API returns all restaurant tables, we filter here. If the API doesn't return locationId, we might see all tables.)
-       setTables(json); // Use 'json' directly if your API handles filtering, or implement filter if needed.
+       setTables(json); 
        setLoading(false);
     };
     fetchTables();
@@ -142,7 +164,7 @@ function StepTwo({ data, onBack, onNext }: any) {
         <div className="flex-1 flex items-center justify-center text-gray-400">Finding tables...</div>
       ) : (
         <div className="grid grid-cols-2 gap-3 overflow-y-auto p-1">
-           {tables.length === 0 && <div className="col-span-2 text-center text-gray-500 py-10">No tables available.</div>}
+           {tables.length === 0 && <div className="col-span-2 text-center text-gray-500 py-10">No tables available in this location.</div>}
            {tables.map(table => (
              <button
                key={table.id}
@@ -155,8 +177,14 @@ function StepTwo({ data, onBack, onNext }: any) {
              >
                <div className="font-bold text-gray-900">{table.name}</div>
                <div className="text-xs text-gray-500 mb-4">{table.capacity} Seats</div>
-               <div className="absolute bottom-4 right-4 text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-md flex items-center gap-1">
-                 <InfinityIcon className="w-3 h-3" /> Free
+               <div className="absolute bottom-4 right-4 text-xs font-bold flex items-center gap-1">
+                 {table.nextBookingTime ? (
+                   <span className="text-orange-600 bg-orange-100 px-2 py-1 rounded-md">Until {table.nextBookingTime}</span>
+                 ) : (
+                   <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md flex items-center gap-1">
+                     <InfinityIcon className="w-3 h-3" /> Free
+                   </span>
+                 )}
                </div>
              </button>
            ))}
@@ -240,10 +268,6 @@ function StepThree({ data, onBack, onNext }: any) {
 // --- STEP 4: SUCCESS CONFIRMATION ---
 function StepSuccess({ data, onClose }: any) {
   const router = useRouter();
-  
-  // Actually save to DB only when we reach this step (or transition to it)
-  // For better UX, we assume the save happened between Step 3 and 4.
-  // In this simplified version, we'll trigger the save effect on mount.
   const [saving, setSaving] = useState(true);
   const [error, setError] = useState("");
 
@@ -293,6 +317,13 @@ function StepSuccess({ data, onClose }: any) {
           <div className="flex justify-between border-b border-gray-200 pb-2">
             <span className="text-gray-500 font-medium">Guest</span>
             <span className="font-bold text-gray-900">{data.name}</span>
+          </div>
+          <div className="flex justify-between border-b border-gray-200 pb-2">
+            <span className="text-gray-500 font-medium">Location</span>
+            <span className="font-bold text-gray-900">
+               {/* Note: In real app, find location name from ID, or pass name through steps */}
+               ID: {data.locationId.substring(0,4)}...
+            </span>
           </div>
           <div className="flex justify-between border-b border-gray-200 pb-2">
             <span className="text-gray-500 font-medium">Date & Time</span>
