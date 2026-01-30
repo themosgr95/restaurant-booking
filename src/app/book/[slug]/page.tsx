@@ -5,21 +5,28 @@ import BookingClient from "./booking-client";
 export default async function PublicBookingPage({ params }: { params: { slug: string } }) {
   const restaurant = await prisma.restaurant.findUnique({
     where: { slug: params.slug },
-    include: { 
-      locations: { 
-        orderBy: { turnoverTime: 'desc' } 
-      } 
-    }
+    include: {
+      locations: {
+        orderBy: { turnoverTime: "desc" },
+      },
+    },
   });
 
   if (!restaurant) notFound();
+
+  // IMPORTANT: only pass serializable fields to the Client Component
+  const locations = restaurant.locations.map((l) => ({
+    id: l.id,
+    name: l.name,
+    turnoverTime: l.turnoverTime,
+  }));
 
   return (
     <div className="min-h-screen bg-orange-50/30 flex flex-col items-center py-12 px-4">
       {/* Brand Header */}
       <div className="flex items-center gap-2 mb-8">
         <div className="bg-orange-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg">
-           <span className="font-black italic text-sm">D!</span>
+          <span className="font-black italic text-sm">D!</span>
         </div>
         <h1 className="text-xl font-black tracking-tighter uppercase italic text-gray-900">Ding!</h1>
       </div>
@@ -31,10 +38,10 @@ export default async function PublicBookingPage({ params }: { params: { slug: st
         </div>
 
         <div className="p-8">
-          <BookingClient restaurantId={restaurant.id} locations={restaurant.locations} />
+          <BookingClient restaurantId={restaurant.id} locations={locations} />
         </div>
       </div>
-      
+
       <p className="mt-8 text-gray-400 text-xs font-medium">Powered by Ding! Service Management</p>
     </div>
   );
