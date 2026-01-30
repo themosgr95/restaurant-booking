@@ -167,19 +167,17 @@ model OpeningHour {
 
 model SpecialClosure {
   id         String   @id @default(cuid())
-  locationId String
   date       DateTime
-  isClosed   Boolean  @default(true)
-  opensAt    String?
-  closesAt   String?
+  
+  isClosed   Boolean  @default(true) // If true, completely closed
+  opensAt    String?  // e.g. "12:00" (Only used if isClosed is false)
+  closesAt   String?  // e.g. "20:00"
+  
   note       String?
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@index([locationId])
-  @@index([date])
+  @@unique([locationId, date]) // Prevent duplicate rules for the same day
 }
 
 model Table {
