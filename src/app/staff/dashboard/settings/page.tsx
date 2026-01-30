@@ -34,7 +34,7 @@ export default async function SettingsPage() {
     <div className="min-h-screen bg-gray-50/50 p-8">
       <div className="mx-auto max-w-5xl">
         
-        {/* HEADER (Cleaned up - No Back Button) */}
+        {/* HEADER (Clean - No Back Button) */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         </div>
