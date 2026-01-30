@@ -3,58 +3,89 @@ import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 
-// Helper to get restaurant ID
-async function getRestaurantId(email: string) {
-  const membership = await prisma.membership.findFirst({
-    where: { user: { email } },
-    select: { restaurantId: true }
-  });
-  return membership?.restaurantId;
-}
-
-// GET: List all locations
-export async function GET(req: Request) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const restaurantId = await getRestaurantId(session.user.email);
-    if (!restaurantId) return NextResponse.json({ error: "No restaurant found" }, { status: 404 });
-
-    const locations = await prisma.location.findMany({
-      where: { restaurantId },
-      orderBy: { createdAt: 'asc' }
-    });
-
-    return NextResponse.json(locations);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch locations" }, { status: 500 });
-  }
-}
-
-// POST: Create a new location
+// 1. CREATE (POST) - Already existed, keeping it
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const restaurantId = await getRestaurantId(session.user.email);
-    if (!restaurantId) return NextResponse.json({ error: "No restaurant found" }, { status: 404 });
-
     const body = await req.json();
     const { name } = body;
 
-    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    const membership = await prisma.membership.findFirst({
+      where: { user: { email: session.user.email } },
+      include: { restaurant: true }
+    });
+
+    if (!membership?.restaurant) return NextResponse.json({ error: "No restaurant found" }, { status: 400 });
 
     const location = await prisma.location.create({
       data: {
         name,
-        restaurantId
+        restaurantId: membership.restaurant.id,
+        slug: name.toLowerCase().replace(/ /g, "-") + "-" + Math.random().toString(36).substr(2, 4)
       }
     });
 
     return NextResponse.json(location);
   } catch (error) {
-    return NextResponse.json({ error: "Failed to create location" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create" }, { status: 500 });
+  }
+}
+
+// 2. DELETE (New!)
+export async function DELETE(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
+
+    // Verify ownership before deleting
+    const membership = await prisma.membership.findFirst({
+      where: { user: { email: session.user.email } },
+      include: { restaurant: { include: { locations: true } } }
+    });
+
+    const ownsLocation = membership?.restaurant?.locations.some(l => l.id === id);
+    if (!ownsLocation) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    await prisma.location.delete({ where: { id } });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+  }
+}
+
+// 3. UPDATE (PATCH) - New!
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = await req.json();
+    const { id, name } = body;
+
+    // Verify ownership
+    const membership = await prisma.membership.findFirst({
+      where: { user: { email: session.user.email } },
+      include: { restaurant: { include: { locations: true } } }
+    });
+
+    const ownsLocation = membership?.restaurant?.locations.some(l => l.id === id);
+    if (!ownsLocation) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const updated = await prisma.location.update({
+      where: { id },
+      data: { name }
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update" }, { status: 500 });
   }
 }
