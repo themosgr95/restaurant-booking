@@ -6,7 +6,6 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const locationId = searchParams.get("locationId");
     const guests = parseInt(searchParams.get("guests") || "2");
-    
     // Default to current month/year if not provided
     const today = new Date();
     const month = parseInt(searchParams.get("month") || today.getMonth().toString());
@@ -14,71 +13,79 @@ export async function GET(req: Request) {
 
     if (!locationId) return NextResponse.json([], { status: 400 });
 
-    // 1. Find tables that fit the group size in this location
-    const tables = await prisma.table.findMany({
-      where: {
-        locationId,
-        capacity: { gte: guests }
-      },
-      select: { id: true }
-    });
-
-    const tableIds = tables.map(t => t.id);
-
-    // If no tables fit the group size, return empty (locks the calendar)
-    if (tableIds.length === 0) {
-      return NextResponse.json({ dates: [] });
-    }
-
-    // 2. Define the date range for the requested month
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, month + 1, 0);
-
-    // 3. Fetch all bookings for these specific tables in this month
-    const bookings = await prisma.booking.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate
-        },
-        bookingTables: {
-          some: {
-            tableId: { in: tableIds }
+    // 1. Get Location Rules (Hours & Closures)
+    const location = await prisma.location.findUnique({
+      where: { id: locationId },
+      include: {
+        openingHours: true,
+        specialClosures: {
+          where: {
+            date: {
+              gte: new Date(year, month, 1),
+              lte: new Date(year, month + 1, 0)
+            }
           }
         },
-        // REMOVED: status: { not: "CANCELLED" } to fix build error
-      },
-      include: {
-        bookingTables: true
+        tables: {
+          where: { capacity: { gte: guests } },
+          select: { id: true }
+        }
       }
     });
 
-    // 4. Calculate "Green" Dates
-    const availableDates: string[] = [];
+    if (!location || location.tables.length === 0) {
+      return NextResponse.json({ dates: {} });
+    }
+
+    // 2. Fetch Bookings for the Month
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0);
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        date: { gte: startDate, lte: endDate },
+        bookingTables: { some: { tableId: { in: location.tables.map(t => t.id) } } },
+        // REMOVED: status: { not: "CANCELLED" } 
+      }
+    });
+
+    // 3. Calculate Status for Each Day
     const daysInMonth = endDate.getDate();
+    const dateStatus: Record<string, string> = {}; 
 
     for (let d = 1; d <= daysInMonth; d++) {
       const currentDay = new Date(year, month, d);
       const dayStr = currentDay.toISOString().split('T')[0];
+      const dayOfWeek = currentDay.getDay(); 
 
-      // Count bookings for this specific day on our candidate tables
-      const dayBookings = bookings.filter(b => 
-        b.date.toISOString().split('T')[0] === dayStr
-      );
+      // --- CHECK 1: IS IT CLOSED? (RED) ---
+      const specialClosure = location.specialClosures.find(c => c.date.toISOString().split('T')[0] === dayStr);
+      const regularHours = location.openingHours.find(oh => oh.dayOfWeek === dayOfWeek);
 
-      // Simple Availability Logic:
-      // If a day has fewer bookings than (NumTables * 5 turns), it's likely available.
-      // This keeps the calendar fast. The "Slots" step will do the strict check.
-      const totalCapacitySlots = tableIds.length * 5; 
+      if ((specialClosure && specialClosure.isClosed) || (!specialClosure && !regularHours)) {
+        dateStatus[dayStr] = "red";
+        continue;
+      }
+
+      // --- CHECK 2: CAPACITY (ORANGE / PURPLE / GREEN) ---
+      const dayBookings = bookings.filter(b => b.date.toISOString().split('T')[0] === dayStr);
       
-      if (dayBookings.length < totalCapacitySlots) {
-        availableDates.push(dayStr);
+      const turnsPerTable = 5; 
+      const totalCapacity = location.tables.length * turnsPerTable;
+      const percentFull = dayBookings.length / totalCapacity;
+
+      if (percentFull >= 1) {
+        dateStatus[dayStr] = "orange"; // Full
+      } else if (percentFull >= 0.7) {
+        dateStatus[dayStr] = "purple"; // Limited
+      } else {
+        dateStatus[dayStr] = "green"; // Available
       }
     }
 
-    return NextResponse.json({ dates: availableDates });
+    return NextResponse.json({ dates: dateStatus });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ dates: [] });
+    return NextResponse.json({ dates: {} });
   }
 }

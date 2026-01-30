@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck, Calendar } from "lucide-react";
+import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 // --- STEP 1: SMART CALENDAR ---
 function StepOne({ onNext, onClose, locations }: any) {
   const today = new Date();
   
-  // State
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  
+  // Stores status: { "2024-01-01": "green", "2024-01-02": "red" }
+  const [dateStatuses, setDateStatuses] = useState<Record<string, string>>({});
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [time, setTime] = useState("");
   const [guests, setGuests] = useState(2);
@@ -19,7 +20,7 @@ function StepOne({ onNext, onClose, locations }: any) {
   const [loadingDates, setLoadingDates] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // 1. Fetch Green Dates when Guests/Location/Month changes
+  // 1. Fetch Colored Dates
   useEffect(() => {
     if (!locationId) return;
     
@@ -31,32 +32,20 @@ function StepOne({ onNext, onClose, locations }: any) {
       const res = await fetch(`/api/restaurant/availability/dates?locationId=${locationId}&guests=${guests}&year=${year}&month=${month}`);
       const data = await res.json();
       
-      const dates = data.dates || [];
-      setAvailableDates(dates);
-      
-      // Auto-select first available date if none selected
-      if (dates.length > 0 && !selectedDate) {
-         // Find first date that is >= today
-         const validDates = dates.sort();
-         const firstFuture = validDates.find((d: string) => new Date(d) >= new Date(today.setHours(0,0,0,0)));
-         if(firstFuture) setSelectedDate(new Date(firstFuture));
-      } else if (dates.length === 0) {
-         setSelectedDate(null); // Reset if no dates found (Lock)
-      }
-      
+      // Data is now { dates: { "2024-01-01": "green" } }
+      setDateStatuses(data.dates || {});
       setLoadingDates(false);
     };
 
     fetchDates();
   }, [locationId, guests, currentMonth]);
 
-  // 2. Fetch Time Slots when Date changes
+  // 2. Fetch Slots (Keep existing logic)
   useEffect(() => {
     if (!selectedDate || !locationId) {
         setAvailableSlots([]);
         return;
     }
-
     const fetchSlots = async () => {
        setLoadingSlots(true);
        const dateStr = selectedDate.toISOString().split('T')[0];
@@ -65,12 +54,9 @@ function StepOne({ onNext, onClose, locations }: any) {
        setAvailableSlots(slots);
        setLoadingSlots(false);
     };
-
     fetchSlots();
   }, [selectedDate, locationId, guests]);
 
-
-  // Helper for Calendar Render
   const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
   const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -82,6 +68,7 @@ function StepOne({ onNext, onClose, locations }: any) {
         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
+      {/* Inputs for Location & Guests */}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="block text-xs font-bold text-gray-500 mb-1">1. Location</label>
@@ -99,7 +86,6 @@ function StepOne({ onNext, onClose, locations }: any) {
             </select>
           </div>
         </div>
-
         <div className="col-span-2">
            <label className="block text-xs font-bold text-gray-500 mb-1">2. Party Size</label>
            <div className="relative">
@@ -111,7 +97,7 @@ function StepOne({ onNext, onClose, locations }: any) {
         </div>
       </div>
 
-      {/* 3. CALENDAR (Locked until Loc selected) */}
+      {/* 3. COLORED CALENDAR */}
       <div className={`transition-all duration-300 ${!locationId ? "opacity-50 blur-sm pointer-events-none" : "opacity-100"}`}>
          <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">3. Select Date</label>
          <div className="border rounded-xl p-4 bg-gray-50/50">
@@ -131,18 +117,33 @@ function StepOne({ onNext, onClose, locations }: any) {
               {days.map(d => {
                  const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
                  const dateStr = dateObj.toISOString().split('T')[0];
-                 const isAvailable = availableDates.includes(dateStr);
+                 const status = dateStatuses[dateStr]; // "green", "red", "orange", "purple"
                  const isSelected = selectedDate?.getDate() === d && selectedDate?.getMonth() === currentMonth.getMonth();
+
+                 // Define Colors
+                 let bgClass = "bg-transparent text-gray-400"; // Default (Loading/Unknown)
+                 let isDisabled = false;
+
+                 if (status === "red") {
+                   bgClass = "bg-red-50 text-red-300 font-normal";
+                   isDisabled = true;
+                 } else if (status === "orange") {
+                   bgClass = "bg-orange-100 text-orange-600 border border-orange-200";
+                   isDisabled = true; 
+                 } else if (status === "purple") {
+                   bgClass = "bg-purple-100 text-purple-700 border border-purple-200 font-bold";
+                 } else if (status === "green") {
+                   bgClass = "bg-green-100 text-green-700 font-bold hover:bg-green-200";
+                 }
+
+                 if (isSelected) bgClass = "bg-black text-white shadow-lg scale-110 z-10 border-none";
 
                  return (
                    <button
                      key={d}
-                     disabled={!isAvailable}
-                     onClick={() => setSelectedDate(dateObj)}
-                     className={`h-9 rounded-lg text-sm font-bold transition-all relative
-                        ${isSelected ? "bg-black text-white shadow-lg scale-110 z-10" : 
-                          isAvailable ? "bg-green-100 text-green-700 hover:bg-green-200" : "text-gray-300 cursor-not-allowed bg-transparent"}
-                     `}
+                     disabled={isDisabled}
+                     onClick={() => { setSelectedDate(dateObj); setTime(""); }}
+                     className={`h-9 rounded-lg text-sm transition-all relative ${bgClass} ${isDisabled ? "cursor-not-allowed opacity-60" : "hover:scale-105"}`}
                    >
                      {d}
                    </button>
@@ -150,22 +151,24 @@ function StepOne({ onNext, onClose, locations }: any) {
               })}
             </div>
             
-            {/* Legend or Loading State */}
-            <div className="mt-2 text-center h-4">
-               {loadingDates && <span className="text-[10px] text-gray-400 animate-pulse">Checking availability...</span>}
-               {!loadingDates && availableDates.length === 0 && locationId && <span className="text-[10px] text-red-400 font-bold">No tables for {guests} people this month.</span>}
+            {/* Legend */}
+            <div className="flex gap-3 justify-center mt-4 text-[10px] font-bold text-gray-500">
+               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-400"></div> Available</span>
+               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-400"></div> Limited</span>
+               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-400"></div> Full</span>
+               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-200"></div> Closed</span>
             </div>
          </div>
 
-         {/* 4. TIME SLOTS */}
+         {/* 4. TIME SLOTS (Only show if date selected) */}
          {selectedDate && (
              <div className="mt-4 animate-in slide-in-from-top-2 duration-300">
                 <label className="block text-xs font-bold text-gray-500 mb-2">4. Available Times</label>
                 {loadingSlots ? (
-                    <div className="text-xs text-gray-400">Loading slots...</div>
+                    <div className="text-xs text-gray-400 animate-pulse">Finding open tables...</div>
                 ) : (
                     <div className="grid grid-cols-4 gap-2">
-                        {availableSlots.length === 0 && <div className="col-span-4 text-xs text-red-500 font-medium">Fully booked for this day.</div>}
+                        {availableSlots.length === 0 && <div className="col-span-4 text-center p-3 text-xs text-orange-500 bg-orange-50 rounded-lg font-bold">No tables available for {guests} people on this day.</div>}
                         {availableSlots.map(t => (
                             <button 
                                 key={t} 
@@ -194,9 +197,7 @@ function StepOne({ onNext, onClose, locations }: any) {
   );
 }
 
-// ... Keep StepTwo, StepThree, StepSuccess, and Main Component exactly as they were ...
-// (I will just provide the rest of the file structure to copy-paste cleanly)
-
+// --- STEP 2: SELECT TABLE ---
 function StepTwo({ data, onBack, onNext }: any) {
   const [tables, setTables] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -242,6 +243,7 @@ function StepTwo({ data, onBack, onNext }: any) {
   );
 }
 
+// --- STEP 3: DETAILS ---
 function StepThree({ data, onBack, onNext }: any) {
   const [details, setDetails] = useState({ name: "", email: "", phone: "", notes: "" });
   return (
@@ -266,6 +268,7 @@ function StepThree({ data, onBack, onNext }: any) {
   );
 }
 
+// --- STEP 4: SUCCESS ---
 function StepSuccess({ data, onClose }: any) {
   const router = useRouter();
   const [saving, setSaving] = useState(true);
@@ -294,6 +297,7 @@ function StepSuccess({ data, onClose }: any) {
   );
 }
 
+// --- MAIN COMPONENT ---
 export default function StaffBookingWizard({ locations, onClose }: { locations: any[], onClose: () => void }) {
   const [step, setStep] = useState(1);
   const [bookingData, setBookingData] = useState<any>({});
