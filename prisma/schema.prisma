@@ -1,63 +1,16 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "mysql" // Keep this as mysql since your logs show you are using MySQL
   url      = env("DATABASE_URL")
 }
 
-enum MembershipRole {
-  OWNER
-  MANAGER
-  STAFF
-}
-
-enum BookingSource {
-  PUBLIC
-  STAFF
-  EMBED
-}
-
-enum BookingStatus {
-  CONFIRMED
-  CANCELLED
-  NO_SHOW
-}
-
-model Restaurant {
-  id            String         @id @default(cuid())
-  name          String
-  slug          String         @unique
-  timezone      String         @default("UTC")
-  status        String         @default("active")
-
-  locations     Location[]
-  tables        Table[]
-  bookings      Booking[]
-  customers     Customer[]
-  memberships   Membership[]
-  bookingPage   BookingPage?
-  embedWidgets  EmbedWidget[]
-  bookingConfig BookingConfig?
-
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-}
-
-model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String?   // <--- ADDED: Required for Credentials Login
-  name          String?
-
-  accounts      Account[]
-  sessions      Session[]
-  memberships   Membership[]
-
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-}
+// --- AUTH (NextAuth.js Standard Models) ---
 
 model Account {
   id                String  @id @default(cuid())
@@ -76,7 +29,6 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
-  @@index([userId])
 }
 
 model Session {
@@ -84,10 +36,20 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  
+  // Relations to your app
+  memberships   Membership[]
 }
 
 model VerificationToken {
@@ -98,227 +60,138 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+// --- RESTAURANT MANAGEMENT ---
+
+model Restaurant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  
+  // Relations
+  memberships Membership[]
+  locations   Location[]
+  bookings    Booking[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model Membership {
-  id           String         @id @default(cuid())
-  restaurantId String
+  id           String     @id @default(cuid())
+  role         String     @default("OWNER") // OWNER, STAFF, etc.
+  
   userId       String
-  role         MembershipRole
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([restaurantId, userId])
-  @@index([restaurantId])
-  @@index([userId])
+  @@unique([userId, restaurantId])
 }
 
 model Location {
-  id           String @id @default(cuid())
-  restaurantId String
+  id           String   @id @default(cuid())
   name         String
+  slug         String?
+  
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
+  // Relations
+  tables          Table[]
   openingHours    OpeningHour[]
   specialClosures SpecialClosure[]
-  services        Service[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([restaurantId])
-}
-
-model Service {
-  id              String @id @default(cuid())
-  locationId      String
-  name            String
-  durationMinutes Int
-  minPartySize    Int    @default(1)
-  maxPartySize    Int
-  leadTimeMinutes Int    @default(0)
-
-  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([locationId])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model OpeningHour {
-  id         String  @id @default(cuid())
+  id         String @id @default(cuid())
+  dayOfWeek  Int    // 0=Sunday, 1=Monday...
+  opensAt    String // "09:00"
+  closesAt   String // "17:00"
+  
   locationId String
-  dayOfWeek  Int
-  opensAt    String
-  closesAt   String
-  serviceId  String?
-
-  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([locationId])
-  @@index([serviceId])
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 }
 
 model SpecialClosure {
   id         String   @id @default(cuid())
   date       DateTime
   
-  isClosed   Boolean  @default(true) // If true, completely closed
-  opensAt    String?  // e.g. "12:00" (Only used if isClosed is false)
-  closesAt   String?  // e.g. "20:00"
-  
+  isClosed   Boolean  @default(true)
+  opensAt    String?  
+  closesAt   String?
   note       String?
+
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  @@unique([locationId, date]) // Prevent duplicate rules for the same day
+  @@unique([locationId, date])
 }
 
 model Table {
-  id           String  @id @default(cuid())
-  restaurantId String
-  locationId   String?
-  name         String
-  capacityMin  Int
-  capacityMax  Int
-  isActive     Boolean @default(true)
-  sortOrder    Int     @default(0)
+  id         String  @id @default(cuid())
+  name       String
+  capacity   Int     @default(2)
+  
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  bookingTables BookingTable[]
+  // Relations
+  bookingTables BookingTable[] 
   locks         TableLock[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([restaurantId])
-  @@index([locationId])
-}
-
-model Customer {
-  id           String  @id @default(cuid())
-  restaurantId String
-  email        String?
-  phone        String?
-  name         String?
-
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  bookings   Booking[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([restaurantId])
-  @@index([email])
-  @@index([phone])
-}
-
-model Booking {
-  id           String  @id @default(cuid())
-  restaurantId String
-  locationId   String?
-  serviceId    String?
-  customerId   String?
-
-  source BookingSource
-  status BookingStatus @default(CONFIRMED)
-
-  partySize Int
-  startsAt  DateTime
-  endsAt    DateTime
-
-  notes                 String?
-  createdByMembershipId String?
-
-  depositAmountCents Int?
-  paymentStatus      String?
-
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
-
-  tables BookingTable[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([restaurantId, startsAt])
-  @@index([startsAt])
-  @@index([status])
-}
-
-model BookingTable {
-  bookingId String
-  tableId   String
-
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  table   Table   @relation(fields: [tableId], references: [id], onDelete: Cascade)
-
-  @@id([bookingId, tableId])
-  @@index([tableId])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model TableLock {
-  id           String  @id @default(cuid())
-  restaurantId String
-  tableId      String?
-
-  startsAt DateTime
-  endsAt   DateTime
-
-  lockKey   String @unique
-  createdBy String
-
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  table Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
-
-  @@index([restaurantId, expiresAt])
-  @@index([tableId, startsAt, endsAt])
-}
-
-model BookingPage {
-  id           String  @id @default(cuid())
-  restaurantId String  @unique
-  isEnabled    Boolean @default(true)
-  brandName    String?
-  primaryColor String?
-
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  date      DateTime
+  startTime String   // "18:00"
+  endTime   String   // "20:00"
+  
+  tableId   String
+  table     Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model EmbedWidget {
-  id             String  @id @default(cuid())
-  restaurantId   String
-  publicKey      String  @unique
-  allowedOrigins String?
-  theme          Json?
+// --- BOOKINGS ---
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+model Booking {
+  id            String   @id @default(cuid())
+  date          DateTime
+  time          String
+  guests        Int
+  
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  status        String   @default("confirmed") // confirmed, cancelled, seated, finished
+  
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  bookingTables BookingTable[]
 
-  @@index([restaurantId])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
-model BookingConfig {
-  id                    String  @id @default(cuid())
-  restaurantId          String  @unique
-  requiresStaffApproval Boolean @default(false)
+// Explicit Join Table for Booking <-> Table
+model BookingTable {
+  id        String  @id @default(cuid())
+  
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  tableId   String
+  table     Table   @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@unique([bookingId, tableId])
 }
