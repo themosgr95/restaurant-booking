@@ -1,57 +1,32 @@
-import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
-
-/**
- * Simple protection (no NextAuth required):
- * - Set env var: ADMIN_API_KEY
- * - Call this endpoint with header: x-admin-key: <your key>
- *
- * If you prefer NextAuth later, we can swap this to getServerSession.
- */
+import { NextResponse } from "next/server";
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ locationId: string }> }
+  // FIX 1: Type 'params' as a Promise
+  { params }: { params: Promise<{ locationId: string }> }
 ) {
   try {
-    const adminKey = process.env.ADMIN_API_KEY || "";
-    const providedKey = req.headers.get("x-admin-key") || "";
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!adminKey) {
-      return NextResponse.json(
-        { error: "ADMIN_API_KEY is not set on the server" },
-        { status: 500 }
-      );
-    }
+    // FIX 2: Await the params before using the ID
+    const { locationId } = await params;
 
-    if (providedKey !== adminKey) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const body = await req.json();
+    
+    // Ensure turnoverTime is valid (minimum 15 mins, default 90)
+    const turnoverTime = Math.max(15, Number(body.turnoverTime) || 90);
 
-    const { locationId } = await ctx.params;
-
-    const body = await req.json().catch(() => ({}));
-    const turnoverMinutes = Math.max(15, Number(body?.turnoverMinutes) || 0);
-
-    if (!turnoverMinutes) {
-      return NextResponse.json(
-        { error: "turnoverMinutes is required (min 15)" },
-        { status: 400 }
-      );
-    }
-
-    const updated = await prisma.location.update({
+    const updatedLocation = await prisma.location.update({
       where: { id: locationId },
-      data: { turnoverMinutes },
-      select: { id: true, turnoverMinutes: true },
+      data: { turnoverTime }
     });
 
-    return NextResponse.json({ success: true, location: updated });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json(
-      { error: "Failed to update turnover time" },
-      { status: 500 }
-    );
+    return NextResponse.json(updatedLocation);
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update turnover time" }, { status: 500 });
   }
 }

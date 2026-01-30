@@ -1,695 +1,223 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { X, Users, Clock, ArrowRight, ArrowLeft, MapPin, CalendarCheck } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type Location = {
-  id: string;
-  name: string;
-};
+// --- STEP 1: SMART SELECTION ---
+function StepOne({ onNext, onClose, locations }: any) {
+  const oneHourLater = new Date(new Date().getTime() + 60 * 60 * 1000);
+  const defaultTime = oneHourLater.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-type Table = {
-  id: string;
-  name?: string | null;
-  capacity: number;
-};
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function toDateStr(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function monthKey(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-}
-
-function formatHumanDate(dateStr: string) {
-  // dateStr: YYYY-MM-DD
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, (m || 1) - 1, d || 1);
-  return dt.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
-}
-
-function StepOne({
-  onNext,
-  onClose,
-  locations,
-}: {
-  onNext: (payload: { locationId: string; guests: number; date: string; time: string }) => void;
-  onClose: () => void;
-  locations: Location[];
-}) {
-  const oneHourLater = new Date(Date.now() + 60 * 60 * 1000);
-  const defaultTime = oneHourLater.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState<Date>(today);
   const [time, setTime] = useState(defaultTime);
   const [guests, setGuests] = useState(2);
   const [locationId, setLocationId] = useState("");
-
-  const [loadingDates, setLoadingDates] = useState(false);
-  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
-  const [closedDates, setClosedDates] = useState<Set<string>>(new Set());
-
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [slots, setSlots] = useState<string[]>([]);
 
   const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
   const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  const selectedDateStr = useMemo(() => toDateStr(selectedDate), [selectedDate]);
-  const currentMonthKey = useMemo(() => monthKey(selectedDate), [selectedDate]);
+  const getDayStatus = (day: number) => {
+    if (day % 7 === 0) return "red"; 
+    if (day === 15) return "orange"; 
+    if (day >= 20 && day <= 25) return "purple"; 
+    return "green";
+  };
 
-  // Fetch available dates (only show selectable dates for this guest count)
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      setAvailableDates(new Set());
-      setClosedDates(new Set());
-      setSlots([]);
-      if (!locationId || !guests) return;
-
-      setLoadingDates(true);
-      try {
-        const res = await fetch(
-          `/api/restaurant/availability/dates?locationId=${encodeURIComponent(locationId)}&guests=${encodeURIComponent(
-            String(guests)
-          )}&month=${encodeURIComponent(currentMonthKey)}`
-        );
-        const data = await res.json();
-        if (cancelled) return;
-
-        const avail = new Set<string>((data?.availableDates ?? []) as string[]);
-        const closed = new Set<string>((data?.closedDates ?? []) as string[]);
-        setAvailableDates(avail);
-        setClosedDates(closed);
-
-        // If current selected date is not available, jump to first available date in month
-        if (!avail.has(selectedDateStr)) {
-          const first = (data?.availableDates ?? [])[0];
-          if (first) {
-            const [y, m, d] = first.split("-").map(Number);
-            setSelectedDate(new Date(y, (m || 1) - 1, d || 1));
-          }
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoadingDates(false);
-      }
-    }
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [locationId, guests, currentMonthKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch slots for chosen date
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      setSlots([]);
-      if (!locationId || !guests) return;
-      const dateStr = selectedDateStr;
-
-      // If the day is closed or not available, don't fetch slots
-      if (closedDates.has(dateStr) || (availableDates.size > 0 && !availableDates.has(dateStr))) return;
-
-      setLoadingSlots(true);
-      try {
-        const res = await fetch(
-          `/api/restaurant/availability/slots?locationId=${encodeURIComponent(locationId)}&guests=${encodeURIComponent(
-            String(guests)
-          )}&date=${encodeURIComponent(dateStr)}`
-        );
-        const data = await res.json();
-        if (cancelled) return;
-
-        const nextSlots = (data?.slots ?? []) as string[];
-        setSlots(nextSlots);
-
-        // If current time is not available, pick first available slot
-        if (nextSlots.length > 0 && !nextSlots.includes(time)) {
-          setTime(nextSlots[0]);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoadingSlots(false);
-      }
-    }
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [locationId, guests, selectedDateStr, availableDates, closedDates]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const canProceed = Boolean(locationId && guests > 0 && selectedDateStr && time && availableDates.has(selectedDateStr) && slots.includes(time));
-
-  const dayCellClass = (dateStr: string, day: number) => {
-    const isSelected = dateStr === selectedDateStr;
-
-    if (!locationId) {
-      return `text-sm px-3 py-2 rounded-lg border border-gray-100 text-gray-300 cursor-not-allowed ${isSelected ? "ring-2 ring-gray-200" : ""}`;
-    }
-
-    if (closedDates.has(dateStr)) {
-      return `text-sm px-3 py-2 rounded-lg bg-red-50 text-red-400 cursor-not-allowed ${isSelected ? "ring-2 ring-red-200" : ""}`;
-    }
-
-    if (availableDates.size > 0 && !availableDates.has(dateStr)) {
-      return `text-sm px-3 py-2 rounded-lg bg-gray-50 text-gray-300 cursor-not-allowed ${isSelected ? "ring-2 ring-gray-200" : ""}`;
-    }
-
-    return `text-sm px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 cursor-pointer ${
-      isSelected ? "ring-2 ring-emerald-300" : ""
-    }`;
+  const statusColors: any = {
+    red: "bg-red-50 text-red-400 cursor-not-allowed",
+    orange: "bg-orange-50 text-orange-600 border border-orange-200",
+    purple: "bg-purple-50 text-purple-600 border border-purple-200",
+    green: "hover:bg-gray-100 text-gray-700"
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="font-semibold text-lg flex items-center gap-2">
-            <CalendarCheck className="w-5 h-5" />
-            New reservation
-          </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl border">
-              <div className="flex items-center gap-2 text-sm font-medium mb-2">
-                <MapPin className="w-4 h-4" />
-                Location
-              </div>
-              <select
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2"
-              >
-                <option value="">Select location...</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-2">
-                Turnover time + opening hours + special closures are used automatically.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl border">
-              <div className="flex items-center gap-2 text-sm font-medium mb-2">
-                <Users className="w-4 h-4" />
-                Guests
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-                  onClick={() => setGuests((g) => Math.max(1, g - 1))}
-                >
-                  -
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  max={40}
-                  value={guests}
-                  onChange={(e) => setGuests(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full border rounded-lg px-3 py-2 text-center"
-                />
-                <button className="px-3 py-2 rounded-lg border hover:bg-gray-50" onClick={() => setGuests((g) => g + 1)}>
-                  +
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Calendar only shows days that can fit this party size.</p>
-            </div>
-
-            <div className="p-4 rounded-xl border">
-              <div className="flex items-center gap-2 text-sm font-medium mb-2">
-                <Clock className="w-4 h-4" />
-                Time
-              </div>
-
-              {!locationId ? (
-                <div className="text-sm text-gray-500">Choose a location first.</div>
-              ) : loadingSlots ? (
-                <div className="text-sm text-gray-500">Loading available times…</div>
-              ) : slots.length === 0 ? (
-                <div className="text-sm text-gray-500">No available times for this day.</div>
-              ) : (
-                <select value={time} onChange={(e) => setTime(e.target.value)} className="w-full border rounded-lg px-3 py-2">
-                  {slots.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl border">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-medium">
-                {selectedDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-                  onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1))}
-                >
-                  Prev
-                </button>
-                <button
-                  className="px-3 py-2 rounded-lg border hover:bg-gray-50"
-                  onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1))}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-
-            {loadingDates && locationId ? (
-              <div className="text-sm text-gray-500">Loading availability…</div>
-            ) : (
-              <div className="grid grid-cols-7 gap-2">
-                {Array.from({ length: firstDay }).map((_, i) => (
-                  <div key={`empty-${i}`} />
-                ))}
-                {days.map((day) => {
-                  const dateStr = `${selectedDate.getFullYear()}-${pad2(selectedDate.getMonth() + 1)}-${pad2(day)}`;
-                  const disabled =
-                    !locationId || closedDates.has(dateStr) || (availableDates.size > 0 && !availableDates.has(dateStr));
-                  return (
-                    <button
-                      key={day}
-                      disabled={disabled}
-                      className={dayCellClass(dateStr, day)}
-                      onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day))}
-                      title={
-                        closedDates.has(dateStr)
-                          ? "Closed"
-                          : availableDates.size > 0 && !availableDates.has(dateStr)
-                          ? "No availability"
-                          : "Available"
-                      }
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="mt-4 text-xs text-gray-500">
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded bg-emerald-100 border border-emerald-200" />
-                Available
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="inline-block w-3 h-3 rounded bg-gray-100 border border-gray-200" />
-                No availability
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="inline-block w-3 h-3 rounded bg-red-100 border border-red-200" />
-                Closed (holiday / closure)
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 border-t flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border hover:bg-gray-50">
-            Cancel
-          </button>
-          <button
-            disabled={!canProceed}
-            onClick={() => onNext({ locationId, guests, date: selectedDateStr, time })}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-              canProceed ? "bg-black text-white hover:bg-black/90" : "bg-gray-200 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            Next <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold">New Reservation</h2>
+        <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
-    </div>
-  );
-}
 
-function StepTwo({
-  onBack,
-  onNext,
-  onClose,
-  payload,
-  locations,
-}: {
-  onBack: () => void;
-  onNext: (table: Table) => void;
-  onClose: () => void;
-  payload: { locationId: string; guests: number; date: string; time: string };
-  locations: Location[];
-}) {
-  const [loading, setLoading] = useState(true);
-  const [tables, setTables] = useState<Table[]>([]);
-  const [selectedTableId, setSelectedTableId] = useState<string>("");
-
-  const locationName = useMemo(() => locations.find((l) => l.id === payload.locationId)?.name ?? "Location", [locations, payload.locationId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      setLoading(true);
-      setTables([]);
-      setSelectedTableId("");
-
-      try {
-        const res = await fetch(
-          `/api/restaurant/availability?locationId=${encodeURIComponent(payload.locationId)}&date=${encodeURIComponent(
-            payload.date
-          )}&time=${encodeURIComponent(payload.time)}&guests=${encodeURIComponent(String(payload.guests))}`
-        );
-        const data = await res.json();
-        if (cancelled) return;
-
-        setTables((data?.availableTables ?? []) as Table[]);
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [payload]);
-
-  const selectedTable = useMemo(() => tables.find((t) => t.id === selectedTableId) ?? null, [tables, selectedTableId]);
-
-  return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="font-semibold text-lg">Choose table</div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-5">
-          <div className="text-sm text-gray-600 mb-4">
-            <span className="font-medium">{locationName}</span> • {formatHumanDate(payload.date)} •{" "}
-            <span className="font-medium">{payload.time}</span> • {payload.guests} guests
-          </div>
-
-          {loading ? (
-            <div className="text-sm text-gray-500">Checking available tables…</div>
-          ) : tables.length === 0 ? (
-            <div className="text-sm text-gray-500">No tables available for this time (opening hours + closures + turnover are enforced).</div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {tables.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setSelectedTableId(t.id)}
-                  className={`p-4 rounded-xl border text-left hover:bg-gray-50 ${
-                    selectedTableId === t.id ? "border-black ring-2 ring-black/10" : "border-gray-200"
-                  }`}
-                >
-                  <div className="font-medium">{t.name ?? `Table ${t.id.slice(0, 6)}`}</div>
-                  <div className="text-sm text-gray-600">Capacity: {t.capacity}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t flex items-center justify-between">
-          <button onClick={onBack} className="px-4 py-2 rounded-lg border hover:bg-gray-50 flex items-center gap-2">
-            <ArrowLeft className="w-4 h-4" /> Back
-          </button>
-
-          <button
-            disabled={!selectedTable}
-            onClick={() => selectedTable && onNext(selectedTable)}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-              selectedTable ? "bg-black text-white hover:bg-black/90" : "bg-gray-200 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            Next <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepThree({
-  onBack,
-  onClose,
-  payload,
-  table,
-  locations,
-}: {
-  onBack: () => void;
-  onClose: () => void;
-  payload: { locationId: string; guests: number; date: string; time: string };
-  table: Table;
-  locations: Location[];
-}) {
-  const router = useRouter();
-
-  const locationName = useMemo(() => locations.find((l) => l.id === payload.locationId)?.name ?? "Location", [locations, payload.locationId]);
-
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-
-  const [saving, setSaving] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [createdId, setCreatedId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const canSave = name.trim().length > 1 && email.trim().includes("@");
-
-  async function createBooking() {
-    setSaving(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/staff/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          locationId: payload.locationId,
-          tableId: table.id,
-          date: payload.date,
-          time: payload.time,
-          guests: payload.guests,
-          customerName: name.trim(),
-          customerEmail: email.trim(),
-          customerPhone: phone.trim() || null,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data?.error ?? "Failed to create booking");
-        return;
-      }
-
-      setCreatedId(data?.booking?.id ?? null);
-      setConfirmOpen(true);
-    } catch {
-      setError("Failed to create booking");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function closeAndRefresh() {
-    setConfirmOpen(false);
-    onClose();
-    router.refresh();
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-        <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl overflow-hidden">
-          <div className="flex items-center justify-between p-4 border-b">
-            <div className="font-semibold text-lg">Customer details</div>
-            <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="p-5">
-            <div className="p-4 rounded-xl border mb-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">{locationName}</span> • {formatHumanDate(payload.date)} •{" "}
-                <span className="font-medium">{payload.time}</span>
-              </div>
-              <div className="text-sm text-gray-600 mt-1">
-                Table: <span className="font-medium">{table.name ?? table.id.slice(0, 6)}</span> • Guests:{" "}
-                <span className="font-medium">{payload.guests}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Email</label>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm font-medium">Phone (optional)</label>
-                <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
-              </div>
-            </div>
-
-            {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
-          </div>
-
-          <div className="p-4 border-t flex items-center justify-between">
-            <button onClick={onBack} className="px-4 py-2 rounded-lg border hover:bg-gray-50 flex items-center gap-2">
-              <ArrowLeft className="w-4 h-4" /> Back
-            </button>
-
-            <button
-              disabled={!canSave || saving}
-              onClick={createBooking}
-              className={`px-4 py-2 rounded-lg ${
-                canSave && !saving ? "bg-black text-white hover:bg-black/90" : "bg-gray-200 text-gray-500 cursor-not-allowed"
-              }`}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-gray-500 mb-1">1. Location</label>
+          <div className="relative">
+            <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <select 
+              value={locationId} 
+              onChange={(e) => setLocationId(e.target.value)} 
+              className="w-full pl-10 border-2 border-blue-100 bg-blue-50/50 rounded-xl p-3 text-sm font-bold text-gray-900 focus:border-blue-500"
             >
-              {saving ? "Saving…" : "Confirm reservation"}
-            </button>
+               <option value="">-- Choose Area --</option>
+               {locations.map((loc: any) => (
+                 <option key={loc.id} value={loc.id}>{loc.name} ({loc.turnoverTime || 90}m)</option>
+               ))}
+            </select>
           </div>
+        </div>
+
+        <div className="col-span-2">
+           <label className="block text-xs font-bold text-gray-500 mb-1">2. Party Size</label>
+           <div className="relative">
+             <Users className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+             <select value={guests} onChange={(e) => setGuests(Number(e.target.value))} className="w-full pl-10 border rounded-lg p-3 text-sm font-bold bg-white">
+                {[1,2,3,4,5,6,7,8,9,10,12].map(n => <option key={n} value={n}>{n} People</option>)}
+             </select>
+           </div>
         </div>
       </div>
 
-      {confirmOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
-          <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden">
-            <div className="p-4 border-b font-semibold">Reservation confirmed ✅</div>
-
-            <div className="p-5 space-y-2">
-              <div className="text-sm text-gray-700">
-                Please repeat with the customer:
-              </div>
-
-              <div className="p-4 rounded-xl border bg-gray-50">
-                <div className="font-medium">{locationName}</div>
-                <div className="text-sm text-gray-700 mt-1">
-                  Date: <span className="font-medium">{formatHumanDate(payload.date)}</span>
-                </div>
-                <div className="text-sm text-gray-700">
-                  Time: <span className="font-medium">{payload.time}</span>
-                </div>
-                <div className="text-sm text-gray-700">
-                  Guests: <span className="font-medium">{payload.guests}</span>
-                </div>
-                <div className="text-sm text-gray-700">
-                  Table: <span className="font-medium">{table.name ?? table.id.slice(0, 6)}</span>
-                </div>
-                {createdId && (
-                  <div className="text-xs text-gray-500 mt-2">Booking ID: {createdId}</div>
-                )}
-              </div>
+      <div className={`transition-all duration-300 ${!locationId ? "opacity-50 blur-sm pointer-events-none" : "opacity-100"}`}>
+         <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">3. Date & Time</label>
+         <div className="border rounded-xl p-4 bg-gray-50/50">
+            <div className="flex justify-between mb-4 font-bold text-gray-900">
+              <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() - 1)))}>←</button>
+              <span>{selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+              <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() + 1)))}>→</button>
             </div>
-
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button onClick={closeAndRefresh} className="px-4 py-2 rounded-lg bg-black text-white hover:bg-black/90">
-                Done
-              </button>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-400 mb-2">
+               <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
             </div>
-          </div>
-        </div>
-      )}
-    </>
+            <div className="grid grid-cols-7 gap-1">
+              {Array(firstDay).fill(null).map((_, i) => <div key={`empty-${i}`} />)}
+              {days.map(d => {
+                 const status = getDayStatus(d);
+                 const isSelected = d === selectedDate.getDate();
+                 return (
+                   <button key={d} onClick={() => setSelectedDate(new Date(selectedDate.setDate(d)))} className={`h-9 rounded-lg text-sm font-bold ${isSelected ? "bg-black text-white" : statusColors[status]}`}>{d}</button>
+                 );
+              })}
+            </div>
+            <div className="mt-4 pt-4 border-t">
+               <label className="block text-xs font-bold text-gray-500 mb-1">Time</label>
+               <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full border rounded-lg p-2.5 font-bold bg-white" />
+            </div>
+         </div>
+      </div>
+
+      <button disabled={!locationId} onClick={() => onNext({ date: selectedDate, time, guests, locationId })} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50">Check Availability <ArrowRight className="w-4 h-4" /></button>
+    </div>
   );
 }
 
-export default function StaffBookingWizard({
-  open,
-  onClose,
-  locations,
-}: {
-  open: boolean;
-  onClose: () => void;
-  locations: Location[];
-}) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [payload, setPayload] = useState<{ locationId: string; guests: number; date: string; time: string } | null>(null);
-  const [table, setTable] = useState<Table | null>(null);
+// --- STEP 2: SELECT TABLE ---
+function StepTwo({ data, onBack, onNext }: any) {
+  const [tables, setTables] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTable, setSelectedTable] = useState<any>(null);
 
   useEffect(() => {
-    if (!open) {
-      setStep(1);
-      setPayload(null);
-      setTable(null);
-    }
-  }, [open]);
-
-  if (!open) return null;
+    const fetchTables = async () => {
+       const dateStr = data.date.toISOString().split('T')[0];
+       const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
+       const json = await res.json();
+       setTables(json); 
+       setLoading(false);
+    };
+    fetchTables();
+  }, []);
 
   return (
-    <>
-      {step === 1 && (
-        <StepOne
-          locations={locations}
-          onClose={onClose}
-          onNext={(p) => {
-            setPayload(p);
-            setStep(2);
-          }}
-        />
+    <div className="space-y-6 h-[500px] flex flex-col">
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
+        <h2 className="text-xl font-bold">Select Table</h2>
+      </div>
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center text-gray-400">Finding tables...</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 overflow-y-auto p-1">
+           {tables.length === 0 && <div className="col-span-2 text-center text-gray-500 py-10">No tables available.</div>}
+           {tables.map(table => (
+             <button key={table.id} onClick={() => setSelectedTable(table)} className={`p-4 rounded-xl border-2 text-left relative ${selectedTable?.id === table.id ? "border-blue-600 bg-blue-50" : "border-gray-100 bg-white"}`}>
+               <div className="font-bold text-gray-900">{table.name}</div>
+               <div className="text-xs text-gray-500 mb-4">{table.capacity} Seats</div>
+               <div className="absolute bottom-4 right-4 text-xs font-bold flex items-center gap-1">
+                 {table.nextBookingTime ? <span className="text-orange-600 bg-orange-100 px-2 py-1 rounded-md">Until {table.nextBookingTime}</span> : <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md"><InfinityIcon className="w-3 h-3" /> Free</span>}
+               </div>
+             </button>
+           ))}
+        </div>
       )}
+      <div className="mt-auto pt-4 border-t">
+        <button disabled={!selectedTable} onClick={() => onNext({ ...data, table: selectedTable })} className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50">Continue to Details</button>
+      </div>
+    </div>
+  );
+}
 
-      {step === 2 && payload && (
-        <StepTwo
-          locations={locations}
-          payload={payload}
-          onClose={onClose}
-          onBack={() => setStep(1)}
-          onNext={(t) => {
-            setTable(t);
-            setStep(3);
-          }}
-        />
-      )}
+// --- STEP 3: DETAILS ---
+function StepThree({ data, onBack, onNext }: any) {
+  const [details, setDetails] = useState({ name: "", email: "", phone: "", notes: "" });
+  return (
+    <div className="space-y-6">
+       <div className="flex items-center gap-2 mb-4">
+        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
+        <h2 className="text-xl font-bold">Guest Details</h2>
+      </div>
+      <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600 mb-4 flex gap-4">
+         <div><span className="block font-bold text-gray-400 text-xs uppercase">Date</span><span className="font-bold text-gray-900">{data.date.toLocaleDateString()}</span></div>
+         <div><span className="block font-bold text-gray-400 text-xs uppercase">Time</span><span className="font-bold text-gray-900">{data.time}</span></div>
+         <div><span className="block font-bold text-gray-400 text-xs uppercase">Table</span><span className="font-bold text-gray-900">{data.table.name}</span></div>
+      </div>
+      <div className="space-y-4">
+        <input placeholder="Full Name" className="w-full border p-3 rounded-lg" value={details.name} onChange={e => setDetails({...details, name: e.target.value})} />
+        <input placeholder="Phone" className="w-full border p-3 rounded-lg" value={details.phone} onChange={e => setDetails({...details, phone: e.target.value})} />
+        <input placeholder="Email (Opt)" className="w-full border p-3 rounded-lg" value={details.email} onChange={e => setDetails({...details, email: e.target.value})} />
+        <textarea placeholder="Notes" className="w-full border p-3 rounded-lg h-20 resize-none" value={details.notes} onChange={e => setDetails({...details, notes: e.target.value})} />
+      </div>
+      <button onClick={() => onNext({ ...data, ...details })} disabled={!details.name} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold">Confirm Reservation</button>
+    </div>
+  );
+}
 
-      {step === 3 && payload && table && (
-        <StepThree
-          locations={locations}
-          payload={payload}
-          table={table}
-          onClose={onClose}
-          onBack={() => setStep(2)}
-        />
-      )}
-    </>
+// --- STEP 4: SUCCESS ---
+function StepSuccess({ data, onClose }: any) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const saveBooking = async () => {
+      const res = await fetch("/api/restaurant/create-booking-manual", {
+        method: "POST",
+        body: JSON.stringify({...data, date: data.date.toISOString().split('T')[0]})
+      });
+      if (res.ok) { setSaving(false); router.refresh(); } else { setError("Booking failed."); }
+    };
+    saveBooking();
+  }, []);
+
+  if (error) return <div className="text-center p-10 font-bold text-red-500">{error}</div>;
+  if (saving) return <div className="text-center p-10 font-bold">Saving...</div>;
+
+  return (
+    <div className="text-center py-8">
+       <CalendarCheck className="w-16 h-16 text-green-600 mx-auto mb-4" />
+       <h2 className="text-2xl font-black mb-2">Confirmed!</h2>
+       <button onClick={onClose} className="w-full bg-black text-white py-3 rounded-xl font-bold">Close</button>
+    </div>
+  );
+}
+
+// --- MAIN WIZARD COMPONENT ---
+// Fix: We explicitly do NOT ask for 'open' in the props here.
+export default function StaffBookingWizard({ locations, onClose }: { locations: any[], onClose: () => void }) {
+  const [step, setStep] = useState(1);
+  const [bookingData, setBookingData] = useState<any>({});
+  const goNext = (data: any) => { setBookingData({...bookingData, ...data}); setStep(step + 1); };
+  const goBack = () => setStep(step - 1);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6">
+        {step === 1 && <StepOne onNext={goNext} onClose={onClose} locations={locations} />}
+        {step === 2 && <StepTwo data={bookingData} onBack={goBack} onNext={goNext} />}
+        {step === 3 && <StepThree data={bookingData} onBack={goBack} onNext={goNext} />}
+        {step === 4 && <StepSuccess data={bookingData} onClose={onClose} />}
+      </div>
+    </div>
   );
 }

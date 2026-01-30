@@ -14,13 +14,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // NOTE: For public booking, we disable the strict session check.
-  // If you need this to be staff-only, uncomment the lines below.
+  // NOTE: Session check disabled for public booking access.
   // const session = await getServerSession(authOptions);
   // if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   // 1. Get Location Info
-  // FIX: We fetch the whole object to avoid the 'turnoverMinutes' error
+  // FIX: We removed 'select' entirely to avoid the 'turnoverMinutes' error.
   const location = await prisma.location.findUnique({
     where: { id: locationId },
   });
@@ -28,7 +27,7 @@ export async function GET(req: Request) {
   if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
 
   // 2. Define Slot based on DYNAMIC turnover time
-  // FIX: Ensure we use 'turnoverTime' (from your schema)
+  // FIX: Use 'turnoverTime' (correct schema field) or default to 90
   const duration = location.turnoverTime || 90; 
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
