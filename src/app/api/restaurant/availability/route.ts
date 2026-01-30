@@ -17,30 +17,26 @@ export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // 1. Get Location to know the Turnover Time
   const location = await prisma.location.findUnique({
     where: { id: locationId }
   });
 
   if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
 
-  // 2. Define Slot based on DYNAMIC turnover time
-  const duration = location.turnoverTime || 90; // Default to 90 if null
+  const duration = location.turnoverTime || 90; 
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
 
-  // 3. Find Tables (Filtered by Location & Capacity)
   const tables = await prisma.table.findMany({
     where: {
       locationId: locationId,
-      capacity: { gte: guests } // Only tables that fit the group
+      capacity: { gte: guests } 
     },
     include: {
       bookingTables: {
         where: {
           booking: {
             date: { equals: new Date(date) }
-            // In a real app, you might filter out 'cancelled' status here
           }
         },
         include: { booking: true }
@@ -48,19 +44,15 @@ export async function GET(req: Request) {
     }
   });
 
-  // 4. Check Availability
   const availableTables = tables.map(table => {
-    // Check Overlaps
     const isOccupied = table.bookingTables.some(bt => {
       const bStart = new Date(`${date}T${bt.booking.time}:00`);
       const bEnd = new Date(bStart.getTime() + duration * 60000); 
-
       return (bookingStart < bEnd && bookingEnd > bStart);
     });
 
     if (isOccupied) return null;
 
-    // Calculate Next Booking Time
     const futureBookings = table.bookingTables
       .map(bt => new Date(`${date}T${bt.booking.time}:00`))
       .filter(d => d > bookingStart)
