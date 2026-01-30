@@ -14,7 +14,6 @@ export default function AddTableForm({ locationId }: { locationId: string }) {
     e.preventDefault();
     setLoading(true);
 
-    // We post to a nested route specific to this location
     const res = await fetch(`/api/restaurant/locations/${locationId}/tables`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -24,7 +23,7 @@ export default function AddTableForm({ locationId }: { locationId: string }) {
     if (res.ok) {
       setName("");
       setCapacity("2");
-      router.refresh(); // Refreshes the list below
+      router.refresh();
     } else {
       alert("Failed to create table");
     }
@@ -48,4 +47,25 @@ export default function AddTableForm({ locationId }: { locationId: string }) {
           />
         </div>
         <div className="w-24">
-          <label className="block text-xs font-medium text-gray
+          <label className="block text-xs font-medium text-gray-500 mb-1">Seats</label>
+          <input 
+            type="number" 
+            required
+            min="1"
+            max="20"
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            className="w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black text-sm p-2"
+          />
+        </div>
+        <button 
+          type="submit" 
+          disabled={loading || !locationId}
+          className="bg-black text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-neutral-800 disabled:opacity-50 flex items-center gap-2"
+        >
+          {loading ? "Adding..." : <><Plus className="w-4 h-4" /> Add Table</>}
+        </button>
+      </form>
+    </div>
+  );
+}

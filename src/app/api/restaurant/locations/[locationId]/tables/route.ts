@@ -5,10 +5,12 @@ import { NextResponse } from "next/server";
 
 export async function POST(
   req: Request,
-  props: { params: Promise<{ locationId: string }> }
+  { params }: { params: Promise<{ locationId: string }> }
 ) {
   try {
-    const params = await props.params;
+    // 1. Await the params first
+    const { locationId } = await params;
+    
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -21,7 +23,7 @@ export async function POST(
       data: {
         name,
         capacity,
-        locationId: params.locationId
+        locationId // Use the extracted ID here
       }
     });
 
@@ -31,7 +33,6 @@ export async function POST(
   }
 }
 
-// Optional: DELETE table
 export async function DELETE(req: Request) {
     try {
         const session = await getServerSession(authOptions);
