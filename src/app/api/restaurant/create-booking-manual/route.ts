@@ -1,15 +1,26 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const body = await req.json();
     const { table, date, time, guests, name, email, phone, notes } = body;
 
-    // 1. Double Check Availability (The "Lock" Safety Net)
-    // (Skipping complex logic for brevity, but this is where you'd prevent race conditions)
+    // 1. Fetch the Table to get the correct Restaurant ID
+    // (We cannot just use locationId as restaurantId)
+    const tableData = await prisma.table.findUnique({
+      where: { id: table.id },
+      include: { location: true } // This gives us location.restaurantId
+    });
 
-    // 2. Create Booking
+    if (!tableData) return NextResponse.json({ error: "Table not found" }, { status: 404 });
+
+    // 2. Create Booking linked to the correct Restaurant
     const booking = await prisma.booking.create({
       data: {
         date: new Date(date),
@@ -19,7 +30,7 @@ export async function POST(req: Request) {
         customerEmail: email,
         customerPhone: phone,
         notes,
-        restaurantId: table.locationId, // Simplified: In real app, query table->location->restaurant
+        restaurantId: tableData.location.restaurantId, // FIX: Use the actual Restaurant ID
         bookingTables: {
           create: { tableId: table.id }
         }
@@ -28,6 +39,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(booking);
   } catch (error) {
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    console.error("Booking Error:", error);
+    return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
   }
 }

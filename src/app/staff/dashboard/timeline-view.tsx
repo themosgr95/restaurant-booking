@@ -29,9 +29,12 @@ export default function TimelineView({
     <div className="space-y-6">
       
       {/* --- POPUP WIZARD --- */}
-      {/* This only shows when you click "New Booking" */}
+      {/* UPDATED: Now passing 'locations' so Step 1 dropdown works */}
       {showWizard && (
-        <StaffBookingWizard onClose={() => setShowWizard(false)} />
+        <StaffBookingWizard 
+          locations={locations} 
+          onClose={() => setShowWizard(false)} 
+        />
       )}
 
       {/* --- CONTROL BAR --- */}
