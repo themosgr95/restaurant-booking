@@ -93,18 +93,18 @@ model Membership {
 model Location {
   id           String   @id @default(cuid())
   name         String
-  slug         String?
-  
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  // Relations
-  tables          Table[]
-  openingHours    OpeningHour[]
-  specialClosures SpecialClosure[]
-
+  turnoverTime Int      @default(90) // <--- Added for Smart Calendar (minutes)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  
+  // Relations
+  restaurantId    String
+  restaurant      Restaurant       @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  tables          Table[]
+  
+  // These were missing and causing the error:
+  openingHours    OpeningHour[]
+  specialClosures SpecialClosure[]
 }
 
 model OpeningHour {

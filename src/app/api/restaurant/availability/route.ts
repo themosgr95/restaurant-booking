@@ -5,33 +5,42 @@ import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const date = searchParams.get("date"); // YYYY-MM-DD
-  const time = searchParams.get("time"); // HH:mm
+  const date = searchParams.get("date");
+  const time = searchParams.get("time");
   const guests = parseInt(searchParams.get("guests") || "2");
-  const locationId = searchParams.get("locationId"); // <--- NEW PARAMETER
+  const locationId = searchParams.get("locationId");
 
   if (!date || !time || !locationId) {
-    return NextResponse.json({ error: "Missing date, time, or location" }, { status: 400 });
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // 1. Define the Booking Slot (Assume 90 min duration)
-  const bookingStart = new Date(`${date}T${time}:00`);
-  const bookingEnd = new Date(bookingStart.getTime() + 90 * 60000);
+  // 1. Get Location to know the Turnover Time
+  const location = await prisma.location.findUnique({
+    where: { id: locationId }
+  });
 
-  // 2. Find tables ONLY for the selected location
+  if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
+
+  // 2. Define Slot based on DYNAMIC turnover time
+  const duration = location.turnoverTime || 90; // Default to 90 if null
+  const bookingStart = new Date(`${date}T${time}:00`);
+  const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
+
+  // 3. Find Tables (Filtered by Location & Capacity)
   const tables = await prisma.table.findMany({
     where: {
-      locationId: locationId, // <--- STRICT FILTERING HERE
-      capacity: { gte: guests }
+      locationId: locationId,
+      capacity: { gte: guests } // Only tables that fit the group
     },
     include: {
       bookingTables: {
         where: {
           booking: {
-            date: { equals: new Date(date) } 
+            date: { equals: new Date(date) }
+            // In a real app, you might filter out 'cancelled' status here
           }
         },
         include: { booking: true }
@@ -39,19 +48,19 @@ export async function GET(req: Request) {
     }
   });
 
-  // 3. Filter Available Tables & Calculate "Next Booking"
+  // 4. Check Availability
   const availableTables = tables.map(table => {
-    // A. Check for overlapping bookings
+    // Check Overlaps
     const isOccupied = table.bookingTables.some(bt => {
       const bStart = new Date(`${date}T${bt.booking.time}:00`);
-      const bEnd = new Date(bStart.getTime() + 90 * 60000); // 90 min duration
-      
+      const bEnd = new Date(bStart.getTime() + duration * 60000); 
+
       return (bookingStart < bEnd && bookingEnd > bStart);
     });
 
     if (isOccupied) return null;
 
-    // B. Find the NEXT reservation on this table
+    // Calculate Next Booking Time
     const futureBookings = table.bookingTables
       .map(bt => new Date(`${date}T${bt.booking.time}:00`))
       .filter(d => d > bookingStart)
@@ -65,10 +74,10 @@ export async function GET(req: Request) {
       id: table.id,
       name: table.name,
       capacity: table.capacity,
-      locationId: table.locationId, // Ensure frontend receives this
+      locationId: table.locationId,
       nextBookingTime
     };
-  }).filter(Boolean); // Remove nulls
+  }).filter(Boolean);
 
   return NextResponse.json(availableTables);
 }

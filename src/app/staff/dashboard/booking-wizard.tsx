@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, ChevronLeft, ChevronRight, Users, Clock, ArrowRight, ArrowLeft, Check, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
+import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-// --- STEP 1: LOCATION, DATE & TIME ---
+// --- STEP 1: SMART SELECTION ---
 function StepOne({ onNext, onClose, locations }: any) {
-  // 1. Default Time: 1 Hour from now
   const oneHourLater = new Date(new Date().getTime() + 60 * 60 * 1000);
   const defaultTime = oneHourLater.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
@@ -20,22 +19,19 @@ function StepOne({ onNext, onClose, locations }: any) {
   const firstDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  // --- TRAFFIC LIGHT COLOR LOGIC ---
+  // Traffic Light Logic
   const getDayStatus = (day: number) => {
-    // Mock logic: Sundays closed, 15th full, 20-25 limited
     if (day % 7 === 0) return "red"; 
     if (day === 15) return "orange"; 
     if (day >= 20 && day <= 25) return "purple"; 
     return "green";
   };
-
   const statusColors: any = {
     red: "bg-red-50 text-red-400 cursor-not-allowed hover:bg-red-50",
     orange: "bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100",
     purple: "bg-purple-50 text-purple-600 border border-purple-200 hover:bg-purple-100",
     green: "hover:bg-gray-100 text-gray-700"
   };
-  // --------------------------------
 
   return (
     <div className="space-y-6">
@@ -44,84 +40,80 @@ function StepOne({ onNext, onClose, locations }: any) {
         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
-      {/* LOCATION SELECTOR */}
-      <div>
-        <label className="block text-xs font-bold text-gray-500 mb-1">1. Select Location</label>
-        <div className="relative">
-          <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-          <select 
-            autoFocus
-            value={locationId} 
-            onChange={(e) => setLocationId(e.target.value)} 
-            className="w-full pl-10 border-2 border-blue-100 bg-blue-50/50 rounded-xl p-3 text-sm font-bold text-gray-900 focus:border-blue-500 focus:ring-blue-500"
-          >
-             <option value="">-- Choose Area --</option>
-             {locations.map((loc: any) => (
-               <option key={loc.id} value={loc.id}>{loc.name}</option>
-             ))}
-          </select>
+      <div className="grid grid-cols-2 gap-4">
+        {/* 1. LOCATION */}
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-gray-500 mb-1">1. Location</label>
+          <div className="relative">
+            <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <select 
+              autoFocus
+              value={locationId} 
+              onChange={(e) => setLocationId(e.target.value)} 
+              className="w-full pl-10 border-2 border-blue-100 bg-blue-50/50 rounded-xl p-3 text-sm font-bold text-gray-900 focus:border-blue-500 focus:ring-blue-500"
+            >
+               <option value="">-- Choose Area --</option>
+               {locations.map((loc: any) => (
+                 <option key={loc.id} value={loc.id}>{loc.name} ({loc.turnoverTime || 90}m)</option>
+               ))}
+            </select>
+          </div>
+        </div>
+
+        {/* 2. GUESTS (Moved Up) */}
+        <div className="col-span-2">
+           <label className="block text-xs font-bold text-gray-500 mb-1">2. Party Size</label>
+           <div className="relative">
+             <Users className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+             <select value={guests} onChange={(e) => setGuests(Number(e.target.value))} className="w-full pl-10 border rounded-lg p-3 text-sm font-bold bg-white">
+                {[1,2,3,4,5,6,7,8,9,10,12,15,20].map(n => <option key={n} value={n}>{n} People</option>)}
+             </select>
+           </div>
         </div>
       </div>
 
-      {/* CALENDAR (Only visible if Location selected) */}
-      <div className={`transition-opacity duration-300 ${!locationId ? "opacity-50 pointer-events-none" : "opacity-100"}`}>
-        <div className="border rounded-xl p-4">
-          <div className="flex justify-between mb-4 font-bold text-gray-900">
-            <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() - 1)))}>←</button>
-            <span>{selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
-            <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() + 1)))}>→</button>
-          </div>
-          
-          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-400 mb-2">
-             <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
-          </div>
-          
-          <div className="grid grid-cols-7 gap-1">
-            {Array(firstDay).fill(null).map((_, i) => <div key={`empty-${i}`} />)}
-            {days.map(d => {
-               const status = getDayStatus(d);
-               const isSelected = d === selectedDate.getDate();
-               return (
-                 <button
-                   key={d}
-                   onClick={() => setSelectedDate(new Date(selectedDate.setDate(d)))}
-                   className={`h-9 rounded-lg text-sm font-bold transition-all ${
-                      isSelected ? "bg-black text-white shadow-md scale-105" : statusColors[status]
-                   }`}
-                 >
-                   {d}
-                 </button>
-               );
-            })}
-          </div>
+      {/* 3. CALENDAR & TIME (Hidden until Location selected) */}
+      <div className={`transition-all duration-300 ${!locationId ? "opacity-50 blur-sm pointer-events-none" : "opacity-100"}`}>
+         
+         <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">3. Date & Time</label>
+         <div className="border rounded-xl p-4 bg-gray-50/50">
+            <div className="flex justify-between mb-4 font-bold text-gray-900">
+              <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() - 1)))}>←</button>
+              <span>{selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+              <button onClick={() => setSelectedDate(new Date(selectedDate.setMonth(selectedDate.getMonth() + 1)))}>→</button>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-400 mb-2">
+               <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-1">
+              {Array(firstDay).fill(null).map((_, i) => <div key={`empty-${i}`} />)}
+              {days.map(d => {
+                 const status = getDayStatus(d);
+                 const isSelected = d === selectedDate.getDate();
+                 return (
+                   <button
+                     key={d}
+                     onClick={() => setSelectedDate(new Date(selectedDate.setDate(d)))}
+                     className={`h-9 rounded-lg text-sm font-bold transition-all ${
+                        isSelected ? "bg-black text-white shadow-md scale-105" : statusColors[status]
+                     }`}
+                   >
+                     {d}
+                   </button>
+                 );
+              })}
+            </div>
 
-          {/* LEGEND */}
-          <div className="flex gap-4 mt-4 text-[10px] font-bold text-gray-500 justify-center uppercase tracking-wide">
-             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-400"></div> Closed</span>
-             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-400"></div> Full</span>
-             <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-400"></div> Limited</span>
-          </div>
-        </div>
-
-        {/* TIME & GUESTS */}
-        <div className="grid grid-cols-2 gap-4 mt-4">
-          <div>
-             <label className="block text-xs font-bold text-gray-500 mb-1">Time</label>
-             <div className="relative">
-               <Clock className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-               <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full pl-10 border rounded-lg p-2.5 text-sm font-bold" />
-             </div>
-          </div>
-          <div>
-             <label className="block text-xs font-bold text-gray-500 mb-1">Guests</label>
-             <div className="relative">
-               <Users className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-               <select value={guests} onChange={(e) => setGuests(Number(e.target.value))} className="w-full pl-10 border rounded-lg p-2.5 text-sm font-bold bg-white">
-                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={n}>{n} ppl</option>)}
-               </select>
-             </div>
-          </div>
-        </div>
+            <div className="mt-4 pt-4 border-t border-gray-200">
+               <label className="block text-xs font-bold text-gray-500 mb-1">Time</label>
+               <div className="relative">
+                 <Clock className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                 <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full pl-10 border rounded-lg p-2.5 text-sm font-bold bg-white" />
+               </div>
+            </div>
+         </div>
       </div>
 
       <button 
@@ -144,7 +136,6 @@ function StepTwo({ data, onBack, onNext }: any) {
   useEffect(() => {
     const fetchTables = async () => {
        const dateStr = data.date.toISOString().split('T')[0];
-       // FIX: We now pass locationId to the API for strict server-side filtering
        const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
        const json = await res.json();
        setTables(json); 
@@ -164,7 +155,7 @@ function StepTwo({ data, onBack, onNext }: any) {
         <div className="flex-1 flex items-center justify-center text-gray-400">Finding tables...</div>
       ) : (
         <div className="grid grid-cols-2 gap-3 overflow-y-auto p-1">
-           {tables.length === 0 && <div className="col-span-2 text-center text-gray-500 py-10">No tables available in this location.</div>}
+           {tables.length === 0 && <div className="col-span-2 text-center text-gray-500 py-10">No tables found for {data.guests} people in this location.</div>}
            {tables.map(table => (
              <button
                key={table.id}
@@ -265,7 +256,7 @@ function StepThree({ data, onBack, onNext }: any) {
   );
 }
 
-// --- STEP 4: SUCCESS CONFIRMATION ---
+// --- STEP 4: SUCCESS ---
 function StepSuccess({ data, onClose }: any) {
   const router = useRouter();
   const [saving, setSaving] = useState(true);
@@ -312,28 +303,6 @@ function StepSuccess({ data, onClose }: any) {
        
        <h2 className="text-2xl font-black text-gray-900 mb-2">Reservation Confirmed!</h2>
        <p className="text-gray-500 mb-8">The booking has been added to the timeline.</p>
-
-       <div className="bg-gray-50 rounded-xl p-6 text-left space-y-3 mb-8 border border-gray-100">
-          <div className="flex justify-between border-b border-gray-200 pb-2">
-            <span className="text-gray-500 font-medium">Guest</span>
-            <span className="font-bold text-gray-900">{data.name}</span>
-          </div>
-          <div className="flex justify-between border-b border-gray-200 pb-2">
-            <span className="text-gray-500 font-medium">Location</span>
-            <span className="font-bold text-gray-900">
-               {/* Note: In real app, find location name from ID, or pass name through steps */}
-               ID: {data.locationId.substring(0,4)}...
-            </span>
-          </div>
-          <div className="flex justify-between border-b border-gray-200 pb-2">
-            <span className="text-gray-500 font-medium">Date & Time</span>
-            <span className="font-bold text-gray-900">{data.date.toLocaleDateString()} at {data.time}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500 font-medium">Table</span>
-            <span className="font-bold text-gray-900">{data.table.name} ({data.guests} ppl)</span>
-          </div>
-       </div>
 
        <button onClick={onClose} className="w-full bg-black text-white py-3 rounded-xl font-bold hover:bg-neutral-800">
          Done (Close)
