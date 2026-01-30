@@ -6,40 +6,35 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { name, slug } = body;
+    const { name } = body;
 
-    if (!name || !slug) {
-      return NextResponse.json({ error: "Name and Slug are required" }, { status: 400 });
-    }
+    if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
 
     // 1. Create the Restaurant
-    // 2. Connect it to the current User as "OWNER"
     const restaurant = await prisma.restaurant.create({
       data: {
         name,
-        slug,
+        slug: name.toLowerCase().replace(/ /g, "-") + "-" + Math.random().toString(36).substr(2, 4),
+        // 2. Link the User as the OWNER immediately
         memberships: {
           create: {
-            role: "OWNER",
-            user: {
-              connect: { email: session.user.email },
-            },
-          },
+            user: { connect: { email: session.user.email } },
+            role: "OWNER"
+          }
         },
-      },
+        // 3. Create a Default Location so the dashboard isn't empty
+        locations: {
+          create: { name: "Main Room" }
+        }
+      }
     });
 
-    return NextResponse.json({ success: true, restaurant });
-  } catch (error: any) {
-    if (error.code === 'P2002') {
-       return NextResponse.json({ error: "This slug is already taken!" }, { status: 400 });
-    }
-    return NextResponse.json({ error: error.message || "Something went wrong" }, { status: 500 });
+    return NextResponse.json(restaurant);
+  } catch (error) {
+    console.error("Create Restaurant Error:", error);
+    return NextResponse.json({ error: "Failed to create" }, { status: 500 });
   }
 }

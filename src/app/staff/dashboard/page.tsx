@@ -1,21 +1,32 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
+import { prisma } from "@/lib/db/prisma"; // Need Prisma to check for restaurant
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Lock } from "lucide-react";
+import CreateRestaurantModal from "./create-restaurant-modal"; // Import the modal
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) redirect("/staff");
 
+  // 1. Check if user has a restaurant
+  const membership = await prisma.membership.findFirst({
+    where: { user: { email: session.user.email } },
+    include: { restaurant: true }
+  });
+
+  // 2. IF NO RESTAURANT -> SHOW MODAL
+  if (!membership?.restaurant) {
+    return <CreateRestaurantModal />;
+  }
+
+  // 3. IF RESTAURANT EXISTS -> SHOW DASHBOARD
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
     <div className="space-y-6">
-      
-      {/* Header / Date Controls */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-        
-        {/* Date Selector */}
         <div className="flex items-center gap-4">
           <button className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><ChevronLeft className="w-5 h-5" /></button>
           <div>
@@ -24,8 +35,6 @@ export default async function DashboardPage() {
           </div>
           <button className="p-2 hover:bg-gray-100 rounded-full text-gray-500"><ChevronRight className="w-5 h-5" /></button>
         </div>
-
-        {/* Action Buttons */}
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm transition-colors">
             <Plus className="w-4 h-4" /> New Booking
@@ -39,7 +48,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* The Timeline Canvas */}
+      {/* Timeline Placeholder */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[500px] flex items-center justify-center">
         <div className="text-center p-8">
            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -49,7 +58,6 @@ export default async function DashboardPage() {
            <p className="text-gray-500 text-sm mt-1">Ready to accept reservations.</p>
         </div>
       </div>
-
     </div>
   );
 }
