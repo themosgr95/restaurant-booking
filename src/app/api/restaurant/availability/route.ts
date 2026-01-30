@@ -14,21 +14,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // Note: For public booking, we might skip session check, 
-  // but if this is shared with staff dashboard, we keep it secure or separate logic.
-  // If you see a "Unauthorized" error on the public page, remove these 2 lines:
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // NOTE: We removed the strict session check here so the Public Booking Page can uses this API too.
+  // If you want to secure this strictly for staff, you would uncomment the lines below, 
+  // but then you need a separate API for public users.
+  // const session = await getServerSession(authOptions);
+  // if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // 1. Get Location Info using the correct field name: turnoverTime
+  // 1. Get Location Info (Fix: Use 'turnoverTime', NOT 'turnoverMinutes')
   const location = await prisma.location.findUnique({
     where: { id: locationId },
+    // We don't need 'select' here, just fetch the whole object to be safe
   });
 
   if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
 
   // 2. Define Slot based on DYNAMIC turnover time
-  // FIX: Use 'turnoverTime' here to match your schema
+  // Fix: Use the correct field from the database
   const duration = location.turnoverTime || 90; 
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
