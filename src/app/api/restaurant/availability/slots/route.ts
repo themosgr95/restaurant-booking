@@ -3,29 +3,66 @@ import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const date = searchParams.get("date");
+  const dateStr = searchParams.get("date"); // YYYY-MM-DD
   const locationId = searchParams.get("locationId");
   const guests = parseInt(searchParams.get("guests") || "2");
 
-  if (!date || !locationId) return NextResponse.json([], { status: 400 });
+  if (!dateStr || !locationId) return NextResponse.json([], { status: 400 });
 
-  // 1. Get Location Duration
-  const loc = await prisma.location.findUnique({ where: { id: locationId } });
-  const duration = loc?.turnoverTime || 90;
+  // 1. Get Location & Turnover Time
+  const location = await prisma.location.findUnique({ where: { id: locationId } });
+  const duration = location?.turnoverTime || 90;
 
-  // 2. Define "Open" Slots (e.g., 17:00 to 22:00)
-  // In a real app, fetch OpeningHours from DB. For now, we mock standard dinner service.
-  const possibleSlots = ["17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00"];
+  // 2. Find Candidate Tables
+  const tables = await prisma.table.findMany({
+    where: {
+      locationId: locationId,
+      capacity: { gte: guests }
+    },
+    include: {
+      bookingTables: {
+        where: {
+          booking: {
+            date: { equals: new Date(dateStr) }
+          }
+        },
+        include: { booking: true }
+      }
+    }
+  });
 
-  // 3. Check each slot for availability
-  // (This is a simplified version of your main availability logic)
-  const availableSlots = [];
+  if (tables.length === 0) return NextResponse.json([]); // No table fits group
 
-  for (const time of possibleSlots) {
-    // Check if ANY table is free at this time...
-    // ... logic same as main availability route ...
-    availableSlots.push(time); // If free
+  // 3. Generate Time Slots (Standard 17:00 - 22:00 for now)
+  // In a real app, fetch OpeningHours from DB
+  const startHour = 17;
+  const endHour = 22;
+  const timeSlots = [];
+  
+  for (let h = startHour; h <= endHour; h++) {
+    timeSlots.push(`${h}:00`);
+    timeSlots.push(`${h}:30`);
   }
+
+  // 4. Filter Available Slots
+  const availableSlots = timeSlots.filter(slotTime => {
+    const slotStart = new Date(`${dateStr}T${slotTime}:00`);
+    const slotEnd = new Date(slotStart.getTime() + duration * 60000);
+
+    // Is there AT LEAST ONE table free for this duration?
+    const isAnyTableFree = tables.some(table => {
+      // Check collision with existing bookings on this table
+      const isBlocked = table.bookingTables.some(bt => {
+        const bStart = new Date(`${dateStr}T${bt.booking.time}:00`);
+        const bEnd = new Date(bStart.getTime() + duration * 60000); 
+        // Overlap Check
+        return (slotStart < bEnd && slotEnd > bStart);
+      });
+      return !isBlocked;
+    });
+
+    return isAnyTableFree;
+  });
 
   return NextResponse.json(availableSlots);
 }

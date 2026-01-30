@@ -7,39 +7,78 @@ export async function GET(req: Request) {
     const locationId = searchParams.get("locationId");
     const guests = parseInt(searchParams.get("guests") || "2");
     
-    // Default to current month if no dates provided, but usually the frontend asks for a range
-    const startStr = searchParams.get("start") || new Date().toISOString().split('T')[0];
-    const endStr = searchParams.get("end");
+    // Default to current month/year if not provided
+    const today = new Date();
+    const month = parseInt(searchParams.get("month") || today.getMonth().toString());
+    const year = parseInt(searchParams.get("year") || today.getFullYear().toString());
 
-    if (!locationId) {
-      return NextResponse.json({ error: "Location ID required" }, { status: 400 });
-    }
+    if (!locationId) return NextResponse.json([], { status: 400 });
 
-    // 1. Get Location Rules
-    const location = await prisma.location.findUnique({
-      where: { id: locationId }
+    // 1. Find tables that fit the group size in this location
+    const tables = await prisma.table.findMany({
+      where: {
+        locationId,
+        capacity: { gte: guests }
+      },
+      select: { id: true }
     });
 
-    if (!location) {
-      return NextResponse.json({ error: "Location not found" }, { status: 404 });
+    const tableIds = tables.map(t => t.id);
+
+    // If no tables fit the group size, return empty (locks the calendar)
+    if (tableIds.length === 0) {
+      return NextResponse.json({ dates: [] });
     }
 
-    // Fix the mangled line from your error:
-    const turnoverTime = location.turnoverTime || 90;
+    // 2. Define the date range for the requested month
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0);
 
-    // 2. Find days with availability (Simplified Logic for Speed)
-    // In a real production app, you'd check every single slot. 
-    // For now, let's assume we return availability for the requested range.
-    // This allows the calendar to load without crashing.
-    
-    return NextResponse.json({ 
-      // Return a simple success structure or the actual dates if you have the complex logic ready.
-      // For the immediate build fix, we return an empty list or success.
-      availableDates: [], 
-      message: "Dates endpoint ready" 
+    // 3. Fetch all bookings for these specific tables in this month
+    const bookings = await prisma.booking.findMany({
+      where: {
+        date: {
+          gte: startDate,
+          lte: endDate
+        },
+        bookingTables: {
+          some: {
+            tableId: { in: tableIds }
+          }
+        },
+        // REMOVED: status: { not: "CANCELLED" } to fix build error
+      },
+      include: {
+        bookingTables: true
+      }
     });
 
+    // 4. Calculate "Green" Dates
+    const availableDates: string[] = [];
+    const daysInMonth = endDate.getDate();
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const currentDay = new Date(year, month, d);
+      const dayStr = currentDay.toISOString().split('T')[0];
+
+      // Count bookings for this specific day on our candidate tables
+      const dayBookings = bookings.filter(b => 
+        b.date.toISOString().split('T')[0] === dayStr
+      );
+
+      // Simple Availability Logic:
+      // If a day has fewer bookings than (NumTables * 5 turns), it's likely available.
+      // This keeps the calendar fast. The "Slots" step will do the strict check.
+      const totalCapacitySlots = tableIds.length * 5; 
+      
+      if (dayBookings.length < totalCapacitySlots) {
+        availableDates.push(dayStr);
+      }
+    }
+
+    return NextResponse.json({ dates: availableDates });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch dates" }, { status: 500 });
+    console.error(error);
+    return NextResponse.json({ dates: [] });
   }
 }
