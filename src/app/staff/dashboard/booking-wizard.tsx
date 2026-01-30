@@ -1,18 +1,583 @@
-function getBookingTimeLabel(b: any) {
-  // 1) If your DB stores a plain string like "18:30"
-  if (typeof b?.time === "string" && b.time.trim()) return b.time;
+"use client";
 
-  // 2) If your DB stores a DateTime like startAt
-  const startAt = b?.startAt ?? b?.start_time ?? b?.startTime;
-  if (startAt) {
-    const d = new Date(startAt);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-  }
+import { useEffect, useState } from "react";
+import {
+  X,
+  Users,
+  Clock,
+  ArrowRight,
+  ArrowLeft,
+  Infinity as InfinityIcon,
+  MapPin,
+  CalendarCheck,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 
-  // 3) If you store date + time separately (date might be "2026-01-30")
-  if (b?.date && b?.time) return `${b.time}`;
+type Location = {
+  id: string;
+  name: string;
+  turnoverTime?: number | null;
+};
 
-  return "—";
+type StepOnePayload = {
+  date: Date;
+  time: string;
+  guests: number;
+  locationId: string;
+};
+
+type StepTwoPayload = StepOnePayload & {
+  table: any;
+};
+
+type StepThreePayload = StepTwoPayload & {
+  name: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
+function StepOne({
+  onNext,
+  onClose,
+  locations,
+}: {
+  onNext: (data: StepOnePayload) => void;
+  onClose: () => void;
+  locations: Location[];
+}) {
+  const oneHourLater = new Date(Date.now() + 60 * 60 * 1000);
+  const defaultTime = oneHourLater.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState<Date>(today);
+  const [time, setTime] = useState(defaultTime);
+  const [guests, setGuests] = useState(2);
+  const [locationId, setLocationId] = useState(locations?.[0]?.id ?? "");
+
+  const daysInMonth = new Date(
+    selectedDate.getFullYear(),
+    selectedDate.getMonth() + 1,
+    0
+  ).getDate();
+
+  const firstDay = new Date(
+    selectedDate.getFullYear(),
+    selectedDate.getMonth(),
+    1
+  ).getDay();
+
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // (Your original status colors logic — purely UI demo)
+  const getDayStatus = (day: number) => {
+    if (day % 7 === 0) return "red";
+    if (day === 15) return "orange";
+    if (day >= 20 && day <= 25) return "purple";
+    return "green";
+  };
+
+  const statusColors: Record<string, string> = {
+    red: "bg-red-50 text-red-400 cursor-not-allowed",
+    orange: "bg-orange-50 text-orange-600 border border-orange-200",
+    purple: "bg-purple-50 text-purple-600 border border-purple-200",
+    green: "hover:bg-gray-100 text-gray-700",
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold">New Reservation</h2>
+        <button onClick={onClose} aria-label="Close">
+          <X className="w-5 h-5 text-gray-400" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            1. Location
+          </label>
+          <div className="relative">
+            <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <select
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              className="w-full pl-10 border-2 border-blue-100 bg-blue-50/50 rounded-xl p-3 text-sm font-bold text-gray-900 focus:border-blue-500"
+            >
+              <option value="">-- Choose Area --</option>
+              {(locations ?? []).map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} ({loc.turnoverTime || 90}m)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            2. Party Size
+          </label>
+          <div className="relative">
+            <Users className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+            <select
+              value={guests}
+              onChange={(e) => setGuests(Number(e.target.value))}
+              className="w-full pl-10 border rounded-lg p-3 text-sm font-bold bg-white"
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map((n) => (
+                <option key={n} value={n}>
+                  {n} People
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`transition-all duration-300 ${
+          !locationId
+            ? "opacity-50 blur-sm pointer-events-none"
+            : "opacity-100"
+        }`}
+      >
+        <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">
+          3. Date & Time
+        </label>
+
+        <div className="border rounded-xl p-4 bg-gray-50/50">
+          <div className="flex justify-between mb-4 font-bold text-gray-900">
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedDate(
+                  new Date(
+                    new Date(selectedDate).setMonth(selectedDate.getMonth() - 1)
+                  )
+                )
+              }
+            >
+              ←
+            </button>
+
+            <span>
+              {selectedDate.toLocaleDateString("en-US", {
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedDate(
+                  new Date(
+                    new Date(selectedDate).setMonth(selectedDate.getMonth() + 1)
+                  )
+                )
+              }
+            >
+              →
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-gray-400 mb-2">
+            <span>S</span>
+            <span>M</span>
+            <span>T</span>
+            <span>W</span>
+            <span>T</span>
+            <span>F</span>
+            <span>S</span>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {Array(firstDay)
+              .fill(null)
+              .map((_, i) => (
+                <div key={`empty-${i}`} />
+              ))}
+
+            {days.map((d) => {
+              const status = getDayStatus(d);
+              const isSelected = d === selectedDate.getDate();
+
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    const newDate = new Date(selectedDate);
+                    newDate.setDate(d);
+                    setSelectedDate(newDate);
+                  }}
+                  className={`h-9 rounded-lg text-sm font-bold ${
+                    isSelected ? "bg-black text-white" : statusColors[status]
+                  }`}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 pt-4 border-t">
+            <label className="block text-xs font-bold text-gray-500 mb-1">
+              Time
+            </label>
+            <div className="relative">
+              <Clock className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="w-full pl-10 border rounded-lg p-2.5 font-bold bg-white"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button
+        disabled={!locationId}
+        onClick={() => onNext({ date: selectedDate, time, guests, locationId })}
+        className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+      >
+        Check Availability <ArrowRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function StepTwo({
+  data,
+  onBack,
+  onNext,
+}: {
+  data: StepOnePayload;
+  onBack: () => void;
+  onNext: (data: StepTwoPayload) => void;
+}) {
+  const [tables, setTables] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTable, setSelectedTable] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchTables = async () => {
+      try {
+        const dateStr = data.date.toISOString().split("T")[0];
+        const res = await fetch(
+          `/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`
+        );
+
+        const json = await res.json().catch(() => []);
+        setTables(Array.isArray(json) ? json : []);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="space-y-6 h-[500px] flex flex-col">
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          onClick={onBack}
+          className="p-2 hover:bg-gray-100 rounded-full"
+          aria-label="Back"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h2 className="text-xl font-bold">Select Table</h2>
+      </div>
+
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center text-gray-400">
+          Finding tables...
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 overflow-y-auto p-1">
+          {tables.length === 0 && (
+            <div className="col-span-2 text-center text-gray-500 py-10">
+              No tables available.
+            </div>
+          )}
+
+          {tables.map((table) => (
+            <button
+              key={table.id}
+              type="button"
+              onClick={() => setSelectedTable(table)}
+              className={`p-4 rounded-xl border-2 text-left relative ${
+                selectedTable?.id === table.id
+                  ? "border-blue-600 bg-blue-50"
+                  : "border-gray-100 bg-white"
+              }`}
+            >
+              <div className="font-bold text-gray-900">{table.name}</div>
+              <div className="text-xs text-gray-500 mb-4">
+                {table.capacity} Seats
+              </div>
+
+              <div className="absolute bottom-4 right-4 text-xs font-bold flex items-center gap-1">
+                {table.nextBookingTime ? (
+                  <span className="text-orange-600 bg-orange-100 px-2 py-1 rounded-md">
+                    Until {table.nextBookingTime}
+                  </span>
+                ) : (
+                  <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md inline-flex items-center gap-1">
+                    <InfinityIcon className="w-3 h-3" /> Free
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-auto pt-4 border-t">
+        <button
+          disabled={!selectedTable}
+          onClick={() => onNext({ ...data, table: selectedTable })}
+          className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50"
+        >
+          Continue to Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StepThree({
+  data,
+  onBack,
+  onNext,
+}: {
+  data: StepTwoPayload;
+  onBack: () => void;
+  onNext: (data: StepThreePayload) => void;
+}) {
+  const [details, setDetails] = useState<{
+    name: string;
+    email: string;
+    phone: string;
+    notes: string;
+  }>({ name: "", email: "", phone: "", notes: "" });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          onClick={onBack}
+          className="p-2 hover:bg-gray-100 rounded-full"
+          aria-label="Back"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <h2 className="text-xl font-bold">Guest Details</h2>
+      </div>
+
+      <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-600 mb-4 flex gap-4">
+        <div>
+          <span className="block font-bold text-gray-400 text-xs uppercase">
+            Date
+          </span>
+          <span className="font-bold text-gray-900">
+            {data.date.toLocaleDateString()}
+          </span>
+        </div>
+
+        <div>
+          <span className="block font-bold text-gray-400 text-xs uppercase">
+            Time
+          </span>
+          <span className="font-bold text-gray-900">{data.time}</span>
+        </div>
+
+        <div>
+          <span className="block font-bold text-gray-400 text-xs uppercase">
+            Table
+          </span>
+          <span className="font-bold text-gray-900">{data.table?.name}</span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <input
+          placeholder="Full Name"
+          className="w-full border p-3 rounded-lg"
+          value={details.name}
+          onChange={(e) => setDetails({ ...details, name: e.target.value })}
+        />
+        <input
+          placeholder="Phone"
+          className="w-full border p-3 rounded-lg"
+          value={details.phone}
+          onChange={(e) => setDetails({ ...details, phone: e.target.value })}
+        />
+        <input
+          placeholder="Email (Opt)"
+          className="w-full border p-3 rounded-lg"
+          value={details.email}
+          onChange={(e) => setDetails({ ...details, email: e.target.value })}
+        />
+        <textarea
+          placeholder="Notes"
+          className="w-full border p-3 rounded-lg h-20 resize-none"
+          value={details.notes}
+          onChange={(e) => setDetails({ ...details, notes: e.target.value })}
+        />
+      </div>
+
+      <button
+        onClick={() => onNext({ ...data, ...details })}
+        disabled={!details.name.trim()}
+        className="w-full bg-green-600 text-white py-3 rounded-xl font-bold disabled:opacity-50"
+      >
+        Confirm Reservation
+      </button>
+    </div>
+  );
+}
+
+function StepSuccess({
+  data,
+  onClose,
+}: {
+  data: StepThreePayload;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const saveBooking = async () => {
+      try {
+        const res = await fetch("/api/restaurant/create-booking-manual", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...data,
+            date: data.date.toISOString().split("T")[0],
+          }),
+        });
+
+        if (res.ok) {
+          setSaving(false);
+          router.refresh();
+        } else {
+          setError("Booking failed.");
+        }
+      } catch {
+        setError("Booking failed.");
+      }
+    };
+
+    saveBooking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (error)
+    return (
+      <div className="text-center p-10 font-bold text-red-500">{error}</div>
+    );
+
+  if (saving)
+    return <div className="text-center p-10 font-bold">Saving...</div>;
+
+  return (
+    <div className="text-center py-8">
+      <CalendarCheck className="w-16 h-16 text-green-600 mx-auto mb-4" />
+      <h2 className="text-2xl font-black mb-2">Confirmed!</h2>
+      <button
+        onClick={onClose}
+        className="w-full bg-black text-white py-3 rounded-xl font-bold"
+      >
+        Close
+      </button>
+    </div>
+  );
+}
+
+export default function StaffBookingWizard({
+  locations,
+  onClose,
+}: {
+  locations: Location[];
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [data, setData] = useState<any>(null);
+
+  // Close on ESC
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <button
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-label="Close modal"
+      />
+
+      {/* Modal */}
+      <div className="relative mx-auto mt-10 w-[95%] max-w-xl rounded-3xl bg-white shadow-2xl border border-gray-100 p-6">
+        {step === 1 && (
+          <StepOne
+            locations={locations}
+            onClose={onClose}
+            onNext={(payload) => {
+              setData(payload);
+              setStep(2);
+            }}
+          />
+        )}
+
+        {step === 2 && (
+          <StepTwo
+            data={data as StepOnePayload}
+            onBack={() => setStep(1)}
+            onNext={(payload) => {
+              setData(payload);
+              setStep(3);
+            }}
+          />
+        )}
+
+        {step === 3 && (
+          <StepThree
+            data={data as StepTwoPayload}
+            onBack={() => setStep(2)}
+            onNext={(payload) => {
+              setData(payload);
+              setStep(4);
+            }}
+          />
+        )}
+
+        {step === 4 && (
+          <StepSuccess
+            data={data as StepThreePayload}
+            onClose={onClose}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
