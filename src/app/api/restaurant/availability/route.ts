@@ -21,22 +21,22 @@ export async function GET(req: Request) {
   });
   if (!membership) return NextResponse.json({ error: "No restaurant" }, { status: 400 });
 
-  // 2. Define the Booking Slot (Assume 90 min duration for simplicity)
+  // 2. Define the Booking Slot (Assume 90 min duration)
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + 90 * 60000);
 
   // 3. Find ALL tables that match capacity
-  // We explicitly include 'bookings' to check for collisions
   const tables = await prisma.table.findMany({
     where: {
       location: { restaurantId: membership.restaurantId },
       capacity: { gte: guests }
     },
     include: {
-      bookings: {
+      // FIX: Changed 'bookings' to 'bookingTables' to match your schema
+      bookingTables: {
         where: {
           booking: {
-            date: { equals: new Date(date) } // Only fetch bookings for THIS day to save performance
+            date: { equals: new Date(date) } 
           }
         },
         include: { booking: true }
@@ -47,24 +47,26 @@ export async function GET(req: Request) {
   // 4. Filter Available Tables & Calculate "Next Booking"
   const availableTables = tables.map(table => {
     // A. Check for overlapping bookings
-    const isOccupied = table.bookings.some(tb => {
-      const bStart = new Date(`${date}T${tb.booking.time}:00`);
-      const bEnd = new Date(bStart.getTime() + 90 * 60000); // 90 min duration assumption
-      // Overlap formula
+    // FIX: Iterate over 'bookingTables'
+    const isOccupied = table.bookingTables.some(bt => {
+      const bStart = new Date(`${date}T${bt.booking.time}:00`);
+      const bEnd = new Date(bStart.getTime() + 90 * 60000); // 90 min duration
+      
       return (bookingStart < bEnd && bookingEnd > bStart);
     });
 
     if (isOccupied) return null; // Filter this table out
 
-    // B. Find the NEXT reservation on this table (for the dashboard indicator)
-    const futureBookings = table.bookings
-      .map(tb => new Date(`${date}T${tb.booking.time}:00`))
+    // B. Find the NEXT reservation on this table
+    // FIX: Iterate over 'bookingTables'
+    const futureBookings = table.bookingTables
+      .map(bt => new Date(`${date}T${bt.booking.time}:00`))
       .filter(d => d > bookingStart)
       .sort((a, b) => a.getTime() - b.getTime());
 
     const nextBookingTime = futureBookings.length > 0 
       ? futureBookings[0].toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : null; // Null means "Infinity" / Free for the rest of the night
+      : null;
 
     return {
       id: table.id,
