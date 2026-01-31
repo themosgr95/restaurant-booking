@@ -1,5 +1,3 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
 
@@ -14,20 +12,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // NOTE: Session check disabled for public booking access.
-  // const session = await getServerSession(authOptions);
-  // if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   // 1. Get Location Info
-  // FIX: We removed 'select' entirely to avoid the 'turnoverMinutes' error.
   const location = await prisma.location.findUnique({
     where: { id: locationId },
   });
 
   if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
 
-  // 2. Define Slot based on DYNAMIC turnover time
-  // FIX: Use 'turnoverTime' (correct schema field) or default to 90
+  // 2. Define Slot
   const duration = location.turnoverTime || 90; 
   const bookingStart = new Date(`${date}T${time}:00`);
   const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
@@ -50,9 +42,8 @@ export async function GET(req: Request) {
     }
   });
 
-  // 4. Check Availability
+  // 4. Check Availability & Return Tables
   const availableTables = tables.map(table => {
-    // Check Overlaps
     const isOccupied = table.bookingTables.some(bt => {
       const bStart = new Date(`${date}T${bt.booking.time}:00`);
       const bEnd = new Date(bStart.getTime() + duration * 60000); 
@@ -61,7 +52,6 @@ export async function GET(req: Request) {
 
     if (isOccupied) return null;
 
-    // Next Booking Time
     const futureBookings = table.bookingTables
       .map(bt => new Date(`${date}T${bt.booking.time}:00`))
       .filter(d => d > bookingStart)
