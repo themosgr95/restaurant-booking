@@ -52,7 +52,6 @@ function StepOne({ onNext, onClose, locations }: any) {
     }
     const fetchSlots = async () => {
        setLoadingSlots(true);
-       // FIX: Use helper to avoid timezone shift
        const dateStr = getLocalDateString(selectedDate);
        const res = await fetch(`/api/restaurant/availability/slots?date=${dateStr}&locationId=${locationId}&guests=${guests}`);
        const slots = await res.json();
@@ -119,7 +118,6 @@ function StepOne({ onNext, onClose, locations }: any) {
               
               {days.map(d => {
                  const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
-                 // FIX: Use helper instead of toISOString()
                  const dateStr = getLocalDateString(dateObj);
                  const status = dateStatuses[dateStr]; 
                  const isSelected = selectedDate?.getDate() === d && selectedDate?.getMonth() === currentMonth.getMonth();
@@ -206,7 +204,6 @@ function StepTwo({ data, onBack, onNext }: any) {
 
   useEffect(() => {
     const fetchTables = async () => {
-       // FIX: Use helper
        const dateStr = getLocalDateString(data.date);
        const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
        const json = await res.json();
@@ -231,9 +228,22 @@ function StepTwo({ data, onBack, onNext }: any) {
              <button key={table.id} onClick={() => setSelectedTable(table)} className={`p-4 rounded-xl border-2 text-left relative ${selectedTable?.id === table.id ? "border-blue-600 bg-blue-50" : "border-gray-100 bg-white"}`}>
                <div className="font-bold text-gray-900">{table.name}</div>
                <div className="text-xs text-gray-500 mb-4">{table.capacity} Seats</div>
+               
+               {/* FIX: VISUAL DISPLAY FOR NEXT BOOKING */}
                <div className="absolute bottom-4 right-4 text-xs font-bold flex items-center gap-1">
-                 <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md"><InfinityIcon className="w-3 h-3" /> Free</span>
+                 {table.nextBookingTime ? (
+                   // Case 1: Has a next booking -> Show Orange "Until XX:XX"
+                   <span className="text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1">
+                     <Clock className="w-3 h-3" /> Until {table.nextBookingTime}
+                   </span>
+                 ) : (
+                   // Case 2: No next booking -> Show Green Infinity
+                   <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md flex items-center gap-1">
+                     <InfinityIcon className="w-3 h-3" /> Free
+                   </span>
+                 )}
                </div>
+
              </button>
            ))}
         </div>
@@ -278,7 +288,6 @@ function StepSuccess({ data, onClose }: any) {
 
   useEffect(() => {
     const saveBooking = async () => {
-      // FIX: Use helper
       const dateStr = getLocalDateString(data.date);
       const res = await fetch("/api/restaurant/create-booking-manual", {
         method: "POST",
