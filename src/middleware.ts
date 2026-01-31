@@ -2,11 +2,11 @@ import { withAuth } from "next-auth/middleware";
 
 export default withAuth({
   pages: {
-    signIn: "/auth/signin", // <--- Forces the custom page
+    signIn: "/auth/signin", // <--- THIS LINE IS CRITICAL
   },
 });
 
 export const config = {
-  // Protect the dashboard and setup routes
-  matcher: ["/staff/dashboard/:path*", "/setup-admin/:path*"],
+  // Protect these routes
+  matcher: ["/staff/:path*", "/setup-admin/:path*"],
 };
