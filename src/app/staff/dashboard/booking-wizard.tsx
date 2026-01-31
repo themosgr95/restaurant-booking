@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck, ArrowRightLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-// HELPER: Format Date as YYYY-MM-DD (Local)
+// HELPER: Format Date as YYYY-MM-DD
 function getLocalDateString(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -201,7 +201,7 @@ function StepOne({ onNext, onClose, locations }: any) {
 }
 
 // --- STEP 2: SELECT TABLE ---
-function StepTwo({ data, onBack, onNext }: any) {
+function StepTwo({ data, onBack, onNext, onClose }: any) {
   const [tables, setTables] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTable, setSelectedTable] = useState<any>(null);
@@ -219,9 +219,12 @@ function StepTwo({ data, onBack, onNext }: any) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 mb-4 shrink-0">
-        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
-        <h2 className="text-xl font-bold">Confirm Table</h2>
+      <div className="flex items-center justify-between mb-4 shrink-0">
+         <div className="flex items-center gap-2">
+            <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
+            <h2 className="text-xl font-bold">Confirm Table</h2>
+         </div>
+         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
       <div className="flex-1 overflow-y-auto pr-2">
@@ -251,16 +254,19 @@ function StepTwo({ data, onBack, onNext }: any) {
         )}
       </div>
 
-      <div className="pt-4 mt-auto border-t shrink-0">
-        <button disabled={!selectedTable} onClick={() => onNext({ ...data, table: selectedTable })} className="w-full bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50">Continue to Details</button>
+      <div className="pt-4 mt-auto border-t shrink-0 flex gap-2">
+         {/* NEW CLOSE BUTTON */}
+        <button onClick={onClose} className="px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">
+            Close
+        </button>
+        <button disabled={!selectedTable} onClick={() => onNext({ ...data, table: selectedTable })} className="flex-1 bg-black text-white py-3 rounded-xl font-bold disabled:opacity-50">Continue</button>
       </div>
     </div>
   );
 }
 
-// --- STEP 3: DETAILS (UPDATED: AUTO-FILL) ---
-function StepThree({ data, onBack, onNext }: any) {
-  // FIX: Initialize with data if available (Transfer Mode)
+// --- STEP 3: DETAILS ---
+function StepThree({ data, onBack, onNext, onClose }: any) {
   const [details, setDetails] = useState({ 
     name: data.customerName || "", 
     email: data.customerEmail || "", 
@@ -270,9 +276,12 @@ function StepThree({ data, onBack, onNext }: any) {
 
   return (
     <div className="flex flex-col h-full">
-       <div className="flex items-center gap-2 mb-4 shrink-0">
-        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
-        <h2 className="text-xl font-bold">Guest Details</h2>
+       <div className="flex items-center justify-between mb-4 shrink-0">
+          <div className="flex items-center gap-2">
+            <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full"><ArrowLeft className="w-5 h-5"/></button>
+            <h2 className="text-xl font-bold">Guest Details</h2>
+          </div>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
       <div className="flex-1 overflow-y-auto pr-2 space-y-6">
@@ -289,8 +298,12 @@ function StepThree({ data, onBack, onNext }: any) {
         </div>
       </div>
 
-      <div className="pt-4 mt-auto border-t shrink-0">
-        <button onClick={() => onNext({ ...data, ...details })} disabled={!details.name} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold">Confirm Reservation</button>
+      <div className="pt-4 mt-auto border-t shrink-0 flex gap-2">
+        {/* NEW CLOSE BUTTON */}
+        <button onClick={onClose} className="px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">
+            Close
+        </button>
+        <button onClick={() => onNext({ ...data, ...details })} disabled={!details.name} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold">Confirm Reservation</button>
       </div>
     </div>
   );
@@ -336,7 +349,6 @@ function StepSuccess({ data, onClose, isEditMode, editId }: any) {
 // --- MAIN COMPONENT ---
 export default function StaffBookingWizard({ locations, onClose, editBooking }: { locations: any[], onClose: () => void, editBooking?: any }) {
   const [step, setStep] = useState(1);
-  // FIX: Pre-fill bookingData with all customer details for Transfer
   const [bookingData, setBookingData] = useState<any>(editBooking ? { 
     guests: editBooking.guests,
     customerName: editBooking.customerName,
@@ -358,8 +370,8 @@ export default function StaffBookingWizard({ locations, onClose, editBooking }: 
             </div>
         )}
         {step === 1 && <StepOne onNext={goNext} onClose={onClose} locations={locations} />}
-        {step === 2 && <StepTwo data={bookingData} onBack={goBack} onNext={goNext} />}
-        {step === 3 && <StepThree data={bookingData} onBack={goBack} onNext={goNext} />}
+        {step === 2 && <StepTwo data={bookingData} onBack={goBack} onNext={goNext} onClose={onClose} />}
+        {step === 3 && <StepThree data={bookingData} onBack={goBack} onNext={goNext} onClose={onClose} />}
         {step === 4 && <StepSuccess data={bookingData} onClose={onClose} isEditMode={!!editBooking} editId={editBooking?.id} />}
       </div>
     </div>
