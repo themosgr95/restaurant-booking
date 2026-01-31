@@ -14,7 +14,6 @@ export default function SignInPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Call NextAuth Credentials provider
     await signIn("credentials", { 
       email, 
       password, 
@@ -73,14 +72,15 @@ export default function SignInPage() {
                  <button 
                    type="button"
                    onClick={() => setShowPassword(!showPassword)}
-                   className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                   className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 focus:outline-none"
+                   tabIndex={-1}
                  >
                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                  </button>
               </div>
            </div>
 
-           {/* Forgot Password */}
+           {/* Forgot Password Link */}
            <div className="flex justify-end">
               <Link href="/auth/forgot-password" className="text-xs font-bold text-gray-500 hover:text-black">
                 Forgot password?
@@ -104,7 +104,7 @@ export default function SignInPage() {
            </div>
         </div>
 
-        {/* Social Login */}
+        {/* Social Login Buttons */}
         <div className="grid grid-cols-2 gap-3">
            <button 
              onClick={() => handleSocialLogin("google")}
