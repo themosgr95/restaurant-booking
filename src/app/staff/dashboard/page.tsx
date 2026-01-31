@@ -11,7 +11,6 @@ export default async function DashboardPage() {
     redirect("/auth/signin");
   }
 
-  // Fetch membership to find the restaurant
   const membership = await prisma.membership.findFirst({
     where: { user: { email: session.user?.email! } },
     include: { restaurant: true }
@@ -23,13 +22,13 @@ export default async function DashboardPage() {
 
   const restaurantId = membership.restaurant.id;
 
-  // 1. Get Locations (Needed for both Timeline & Settings)
+  // 1. Get Locations
   const locations = await prisma.location.findMany({
     where: { restaurantId },
     include: { tables: true } 
   });
 
-  // 2. Get Today's Bookings (For Timeline)
+  // 2. Get Bookings
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -42,7 +41,6 @@ export default async function DashboardPage() {
         gte: today,
         lt: tomorrow
       },
-      // REMOVED: status: { not: "CANCELLED" } -> Fixes the build error
     },
     include: {
       bookingTables: {
@@ -52,16 +50,19 @@ export default async function DashboardPage() {
     orderBy: { time: 'asc' }
   });
 
-  // Transform bookings for the UI
+  // 3. Transform Data (CRITICAL: Pass all fields explicitly)
   const formattedBookings = bookings.map(b => ({
     id: b.id,
     customerName: b.customerName,
+    customerEmail: b.customerEmail, // Pass Email
+    customerPhone: b.customerPhone, // Pass Phone
+    date: b.date.toISOString(),     // Pass Date as String to avoid serialization errors
     time: b.time,
     guests: b.guests,
     notes: b.notes,
+    status: b.status,               // Pass Status
     tables: b.bookingTables.map(bt => bt.table),
   }));
 
-  // Pass everything to the Client Component
   return <DashboardClient locations={locations} bookings={formattedBookings} />;
 }
