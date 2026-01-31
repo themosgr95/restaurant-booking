@@ -8,7 +8,7 @@ const tabs = [
   { name: "Profile", href: "/staff/dashboard/settings/profile" },
   { name: "Restaurant", href: "/staff/dashboard/settings/restaurant" },
   { name: "Hours", href: "/staff/dashboard/settings/hours" },
-  { name: "Tables", href: "/staff/dashboard/settings/tables" },
+  { name: "Tables", href: "/staff/dashboard/tables" },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
