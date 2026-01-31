@@ -33,7 +33,8 @@ function StepOne({ onNext, onClose, locations }: any) {
       setLoadingDates(true);
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
-      const res = await fetch(`/api/restaurant/availability/dates?locationId=${locationId}&guests=${guests}&year=${year}&month=${month}`);
+      // UPDATED PATH: Pointing to booking/availability
+      const res = await fetch(`/api/booking/availability/dates?locationId=${locationId}&guests=${guests}&year=${year}&month=${month}`);
       const data = await res.json();
       setDateStatuses(data.dates || {});
       setLoadingDates(false);
@@ -49,7 +50,8 @@ function StepOne({ onNext, onClose, locations }: any) {
     const fetchSlots = async () => {
        setLoadingSlots(true);
        const dateStr = getLocalDateString(selectedDate);
-       const res = await fetch(`/api/restaurant/availability/slots?date=${dateStr}&locationId=${locationId}&guests=${guests}`);
+       // UPDATED PATH: Pointing to booking/availability
+       const res = await fetch(`/api/booking/availability/slots?date=${dateStr}&locationId=${locationId}&guests=${guests}`);
        const slots = await res.json();
        setAvailableSlots(slots);
        setLoadingSlots(false);
@@ -209,7 +211,8 @@ function StepTwo({ data, onBack, onNext, onClose }: any) {
   useEffect(() => {
     const fetchTables = async () => {
        const dateStr = getLocalDateString(data.date);
-       const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
+       // UPDATED PATH: Pointing to booking/availability
+       const res = await fetch(`/api/booking/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
        const json = await res.json();
        setTables(json); 
        setLoading(false);
@@ -255,7 +258,6 @@ function StepTwo({ data, onBack, onNext, onClose }: any) {
       </div>
 
       <div className="pt-4 mt-auto border-t shrink-0 flex gap-2">
-         {/* NEW CLOSE BUTTON */}
         <button onClick={onClose} className="px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">
             Close
         </button>
@@ -299,7 +301,6 @@ function StepThree({ data, onBack, onNext, onClose }: any) {
       </div>
 
       <div className="pt-4 mt-auto border-t shrink-0 flex gap-2">
-        {/* NEW CLOSE BUTTON */}
         <button onClick={onClose} className="px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">
             Close
         </button>

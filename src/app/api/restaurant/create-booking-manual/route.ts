@@ -1,35 +1,42 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 
 export async function POST(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
-    const { name, email, phone, date, time, guests, notes, tableId, locationId } = body;
+    const { date, time, guests, customerName, customerEmail, customerPhone, notes, locationId, tableId } = body;
 
-    // 1. Combine Date and Time into a single DateTime object
-    // "date" comes as "2025-08-20" and "time" as "19:30"
-    const combinedDate = new Date(`${date}T${time}:00`);
+    if (!date || !time || !guests || !locationId || !customerName) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
 
-    // 2. Create the Booking
-    // We removed the 'time' field because it's now inside 'combinedDate'
+    // Create the booking
     const booking = await prisma.booking.create({
       data: {
-        date: combinedDate,       // <--- The Fix: Use the combined DateTime
+        date: new Date(date), // Ensure this is a Date object
+        time: time,           // <--- THIS WAS MISSING
         guests: parseInt(guests),
-        customerName: name,
-        customerEmail: email,
-        customerPhone: phone,
-        notes: notes,
+        customerName,
+        customerEmail,
+        customerPhone,
+        notes,
         status: "CONFIRMED",
-        locationId: locationId,
-        tableId: tableId || null, // Optional link to a specific table
-      }
+        locationId,
+        tableId: tableId || null, // Optional
+      },
     });
 
     return NextResponse.json({ success: true, booking });
-
   } catch (error) {
-    console.error("Manual Booking Error:", error);
-    return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
+    console.error("Failed to create manual booking:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

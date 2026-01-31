@@ -2,95 +2,78 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, LayoutGrid, Settings, Calendar, LogOut } from "lucide-react";
-import { signOut } from "next-auth/react";
+import { LayoutGrid, Calendar, Clock, Settings, LogOut } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
+  const navigation = [
+    { name: "Timeline", href: "/staff/dashboard/timeline", icon: Calendar },
+    { name: "Tables", href: "/staff/dashboard/tables", icon: LayoutGrid }, // <--- FIXED LINK (No longer inside /settings)
+    { name: "Hours", href: "/staff/dashboard/settings/hours", icon: Clock },
+    { name: "Settings", href: "/staff/dashboard/settings/restaurant", icon: Settings },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      
-      {/* TOP NAVIGATION BAR */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div className="min-h-screen bg-white">
+      {/* Top Navigation Bar */}
+      <header className="border-b border-gray-200 sticky top-0 z-50 bg-white/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
+          <div className="flex justify-between h-16 items-center">
             
-            {/* Logo & Brand */}
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 bg-black text-white rounded-lg flex items-center justify-center font-bold text-lg">A</div>
+            {/* Logo Area */}
+            <div className="flex items-center gap-4">
+              <div className="bg-black text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xl">
+                A
+              </div>
               <div>
-                <h1 className="text-lg font-bold tracking-tight leading-none">Argo</h1>
-                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Owner Dashboard</p>
+                <h1 className="font-bold text-gray-900 leading-none">Argo</h1>
+                <p className="text-[10px] font-bold text-gray-400 tracking-wider">OWNER DASHBOARD</p>
               </div>
             </div>
 
+            {/* Navigation Links */}
+            <nav className="hidden md:flex items-center space-x-8 h-full">
+              {navigation.map((item) => {
+                const isActive = pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={`relative h-full flex items-center gap-2 text-sm font-bold transition-colors ${
+                      isActive ? "text-black" : "text-gray-400 hover:text-gray-600"
+                    }`}
+                  >
+                    <item.icon size={18} />
+                    {item.name}
+                    {/* Active Underline Indicator */}
+                    {isActive && (
+                        <span className="absolute bottom-0 left-0 w-full h-[3px] bg-black rounded-t-full"></span>
+                    )}
+                  </Link>
+                );
+              })}
+            </nav>
+
             {/* Right Side Actions */}
             <div className="flex items-center gap-4">
-              <a href="/" target="_blank" className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
+              <Link href="/" target="_blank" className="text-sm font-bold text-blue-600 hover:underline hidden sm:block">
                 View Booking Page ↗
-              </a>
-              <div className="h-4 w-px bg-gray-200"></div>
-              <button 
-                onClick={() => signOut({ callbackUrl: "/staff" })}
-                className="text-sm font-medium text-gray-500 hover:text-red-600 flex items-center gap-2"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out
-              </button>
+              </Link>
+              <div className="h-6 w-px bg-gray-200 hidden sm:block"></div>
+              <Link href="/api/auth/signout" className="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-red-500 transition-colors">
+                <LogOut size={16} />
+                <span className="hidden sm:inline">Sign Out</span>
+              </Link>
             </div>
-          </div>
-
-          {/* MAIN TABS */}
-          <div className="flex items-center gap-1 pb-0 overflow-x-auto">
-            <TabItem 
-              href="/staff/dashboard" 
-              icon={<Calendar className="w-4 h-4" />} 
-              label="Timeline" 
-              active={pathname === "/staff/dashboard" || pathname.includes("/bookings")} 
-            />
-            <TabItem 
-              href="/staff/dashboard/settings/tables" 
-              icon={<LayoutGrid className="w-4 h-4" />} 
-              label="Tables" 
-              active={pathname.includes("/tables")} 
-            />
-            <TabItem 
-              href="/staff/dashboard/settings/locations" 
-              icon={<Clock className="w-4 h-4" />} 
-              label="Hours" 
-              active={pathname.includes("/locations")} 
-            />
-            <TabItem 
-              href="/staff/dashboard/settings" 
-              icon={<Settings className="w-4 h-4" />} 
-              label="Settings" 
-              active={pathname === "/staff/dashboard/settings"} 
-            />
           </div>
         </div>
       </header>
 
-      {/* PAGE CONTENT */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-300">
+      {/* Main Content Area */}
+      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {children}
       </main>
     </div>
-  );
-}
-
-// Helper Component for Tabs
-function TabItem({ href, icon, label, active }: any) {
-  return (
-    <Link href={href}>
-      <div className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${
-        active 
-          ? "border-black text-black" 
-          : "border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300"
-      }`}>
-        {icon}
-        <span>{label}</span>
-      </div>
-    </Link>
   );
 }
