@@ -1,210 +1,156 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Trash2, Users, Square, Circle } from "lucide-react";
+import { Plus, Trash2, Users, Square, Edit2, X } from "lucide-react";
+
+interface Table {
+  id: string;
+  name: string;
+  capacity: number;
+  locationId: string;
+}
 
 interface Location {
   id: string;
   name: string;
 }
 
-interface Table {
-  id: string;
-  name: string;
-  capacity: number;
-  shape: "RECTANGLE" | "ROUND"; // We can assume these shapes
-}
-
-export default function TablesSettingsPage() {
+export default function TableManagerPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>("");
   const [tables, setTables] = useState<Table[]>([]);
   
-  // New Table Form State
-  const [newTableName, setNewTableName] = useState("");
-  const [newTableCapacity, setNewTableCapacity] = useState("4");
-  const [newTableShape, setNewTableShape] = useState("RECTANGLE");
-  const [loading, setLoading] = useState(false);
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTable, setEditingTable] = useState<Table | null>(null);
+  const [formData, setFormData] = useState({ name: "", capacity: "4" });
 
-  // 1. Fetch Locations on Load
   useEffect(() => {
-    async function fetchLocations() {
+    async function loadData() {
       try {
-        // We need an endpoint to get user's locations. 
-        // If you don't have one, we can mock it or you can use your existing one.
-        // For now, let's assume this exists or use a temporary mock if it fails.
-        const res = await fetch("/api/restaurant/list"); 
-        if (res.ok) {
-            const data = await res.json();
-            setLocations(data.locations || []);
-            if (data.locations?.[0]) setSelectedLocation(data.locations[0].id);
+        const res = await fetch("/api/restaurant/list");
+        const data = await res.json();
+        if (data.locations?.length > 0) {
+          setLocations(data.locations);
+          setSelectedLocation(data.locations[0].id);
         }
-      } catch (e) {
-        console.error("Failed to fetch locations");
-      }
+      } catch (e) { console.error("Failed to load locations"); }
     }
-    fetchLocations();
+    loadData();
   }, []);
 
-  // 2. Fetch Tables when Location Changes
   useEffect(() => {
     if (!selectedLocation) return;
-    async function fetchTables() {
-      const res = await fetch(`/api/tables?locationId=${selectedLocation}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTables(data.tables);
-      }
-    }
-    fetchTables();
+    fetch(`/api/tables?locationId=${selectedLocation}`)
+      .then(res => res.json())
+      .then(data => setTables(data.tables || []));
   }, [selectedLocation]);
 
-  // 3. Handle Add Table
-  const handleAddTable = async (e: React.FormEvent) => {
+  const openModal = (table?: Table) => {
+    if (table) {
+      setEditingTable(table);
+      setFormData({ name: table.name, capacity: table.capacity.toString() });
+    } else {
+      setEditingTable(null);
+      setFormData({ name: "", capacity: "4" });
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedLocation) return alert("Please select a location first");
-    
-    setLoading(true);
-    const res = await fetch("/api/tables/create", {
-      method: "POST",
-      body: JSON.stringify({
-        name: newTableName,
-        capacity: parseInt(newTableCapacity),
-        locationId: selectedLocation,
-        shape: newTableShape // Only if your DB supports it, otherwise it ignores it
-      }),
+    if (!selectedLocation) return;
+
+    const payload = {
+      ...formData,
+      capacity: parseInt(formData.capacity),
+      locationId: selectedLocation,
+      id: editingTable?.id
+    };
+
+    const url = editingTable ? "/api/tables" : "/api/tables/create"; 
+    const method = editingTable ? "PUT" : "POST";
+
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
     if (res.ok) {
-      const data = await res.json();
-      setTables([...tables, data.table]); // Add to list immediately
-      setNewTableName(""); // Reset form
-    } else {
-      alert("Failed to create table");
+      setIsModalOpen(false);
+      // Refresh list
+      const updated = await fetch(`/api/tables?locationId=${selectedLocation}`).then(r => r.json());
+      setTables(updated.tables);
     }
-    setLoading(false);
   };
 
-  // 4. Handle Delete Table
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this table?")) return;
-    const res = await fetch(`/api/tables?id=${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setTables(tables.filter((t) => t.id !== id));
-    }
+    await fetch(`/api/tables?id=${id}`, { method: "DELETE" });
+    setTables(tables.filter(t => t.id !== id));
   };
 
   return (
-    <div className="space-y-8">
-      
-      {/* --- Header & Location Selector --- */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Restaurant Tables</h2>
-          <p className="text-gray-500 text-sm">Manage your floor plan capacity.</p>
-        </div>
-        
-        <div className="flex items-center gap-2 bg-white p-2 border rounded-lg shadow-sm">
-            <span className="text-sm font-medium text-gray-500 pl-2">Location:</span>
-            <select 
-                className="bg-transparent font-bold text-gray-900 focus:outline-none cursor-pointer"
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-            >
-                {locations.length === 0 && <option>Loading locations...</option>}
-                {locations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                ))}
-            </select>
-        </div>
+    <div className="max-w-6xl mx-auto py-8 px-6">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-black text-gray-900">Floor Plan</h1>
+        {locations.length > 0 && (
+          <select 
+            className="bg-white border border-gray-200 rounded-lg px-3 py-2 font-bold cursor-pointer"
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+          >
+            {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+          </select>
+        )}
       </div>
 
-      {/* --- Add Table Card --- */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
-        <h3 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
-            <Plus className="w-5 h-5" /> Add New Table
-        </h3>
-        <form onSubmit={handleAddTable} className="flex flex-wrap items-end gap-4">
-            
-            <div className="flex-1 min-w-[200px]">
-                <label className="block text-xs font-bold text-blue-800 uppercase mb-1">Table Name/Number</label>
-                <input 
-                    type="text" 
-                    placeholder="e.g. Table 12 or Window Seat" 
-                    className="w-full p-2.5 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={newTableName}
-                    onChange={(e) => setNewTableName(e.target.value)}
-                    required
-                />
-            </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Add Button */}
+        <button onClick={() => openModal()} className="h-40 rounded-2xl border-2 border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50 flex flex-col items-center justify-center text-blue-600 font-bold transition-all">
+          <Plus size={32} className="mb-2" />
+          Add Table
+        </button>
 
-            <div className="w-32">
-                <label className="block text-xs font-bold text-blue-800 uppercase mb-1">Capacity</label>
-                <div className="relative">
-                    <Users className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-                    <input 
-                        type="number" 
-                        min="1"
-                        className="w-full p-2.5 pl-9 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={newTableCapacity}
-                        onChange={(e) => setNewTableCapacity(e.target.value)}
-                        required
-                    />
-                </div>
+        {/* Table Cards */}
+        {tables.map((table) => (
+          <div key={table.id} className="relative group bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md h-40 flex flex-col items-center justify-center">
+            <Square size={32} className="text-gray-400 mb-2" />
+            <h3 className="font-bold text-lg">{table.name}</h3>
+            <span className="text-sm text-gray-500 flex items-center gap-1">
+               <Users size={14} /> {table.capacity}
+            </span>
+            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+               <button onClick={(e) => { e.stopPropagation(); openModal(table); }} className="p-2 hover:bg-blue-100 rounded-full"><Edit2 size={14} /></button>
+               <button onClick={(e) => { e.stopPropagation(); handleDelete(table.id); }} className="p-2 hover:bg-red-100 rounded-full"><Trash2 size={14} /></button>
             </div>
-
-            <div className="w-32">
-                <label className="block text-xs font-bold text-blue-800 uppercase mb-1">Shape</label>
-                <select 
-                    className="w-full p-2.5 rounded-lg border border-blue-200 bg-white"
-                    value={newTableShape}
-                    onChange={(e) => setNewTableShape(e.target.value)}
-                >
-                    <option value="RECTANGLE">Square</option>
-                    <option value="ROUND">Round</option>
-                </select>
-            </div>
-
-            <button 
-                type="submit" 
-                disabled={loading}
-                className="bg-blue-600 text-white font-bold py-2.5 px-6 rounded-lg hover:bg-blue-700 transition-colors shadow-md disabled:opacity-50"
-            >
-                {loading ? "Adding..." : "Add Table"}
-            </button>
-        </form>
+          </div>
+        ))}
       </div>
 
-      {/* --- Tables Grid --- */}
-      {tables.length === 0 ? (
-         <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-             <p className="text-gray-400 font-medium">No tables found. Add your first one above!</p>
-         </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {tables.map((table) => (
-                <div key={table.id} className="group relative bg-white border border-gray-200 hover:border-blue-400 p-5 rounded-xl shadow-sm hover:shadow-md transition-all flex flex-col items-center text-center">
-                    
-                    {/* Visual Icon */}
-                    <div className="mb-3 p-3 bg-gray-50 rounded-full text-gray-400 group-hover:text-blue-500 group-hover:bg-blue-50 transition-colors">
-                        {table.shape === "ROUND" ? <Circle size={32} /> : <Square size={32} />}
-                    </div>
-
-                    <h4 className="font-bold text-lg text-gray-900">{table.name}</h4>
-                    <span className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                        <Users size={14} /> {table.capacity} Seats
-                    </span>
-
-                    {/* Delete Button (Hidden until hover) */}
-                    <button 
-                        onClick={() => handleDelete(table.id)}
-                        className="absolute top-2 right-2 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-all"
-                        title="Delete Table"
-                    >
-                        <Trash2 size={16} />
-                    </button>
-                </div>
-            ))}
+      {/* Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex justify-between p-5 border-b">
+               <h2 className="font-bold text-lg">{editingTable ? "Edit Table" : "New Table"}</h2>
+               <button onClick={() => setIsModalOpen(false)}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
+                  <input type="text" required className="w-full p-3 bg-gray-50 border rounded-xl font-medium" 
+                    value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Capacity</label>
+                  <input type="number" required min="1" className="w-full p-3 bg-gray-50 border rounded-xl font-medium" 
+                    value={formData.capacity} onChange={e => setFormData({...formData, capacity: e.target.value})} />
+               </div>
+               <button type="submit" className="w-full py-3 bg-black text-white font-bold rounded-xl mt-2">Save</button>
+            </form>
+          </div>
         </div>
       )}
     </div>
