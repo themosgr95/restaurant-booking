@@ -6,7 +6,7 @@ import { signOut } from "next-auth/react";
 import TimelineView from "./timeline-view";
 import SettingsView from "./settings-view";
 
-export default function DashboardClient({ locations, bookings }: { locations: any[], bookings: any[] }) {
+export default function DashboardClient({ locations, bookings, currentDate }: { locations: any[], bookings: any[], currentDate: string }) {
   const [activeTab, setActiveTab] = useState<"timeline" | "settings">("timeline");
 
   return (
@@ -53,7 +53,11 @@ export default function DashboardClient({ locations, bookings }: { locations: an
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
          {activeTab === "timeline" && (
-           <TimelineView locations={locations} bookings={bookings} />
+           <TimelineView 
+              locations={locations} 
+              bookings={bookings}
+              dateStr={currentDate} // Passing the date down correctly
+           />
          )}
 
          {activeTab === "settings" && (

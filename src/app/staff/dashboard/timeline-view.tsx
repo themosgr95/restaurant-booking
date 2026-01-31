@@ -1,21 +1,43 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users, AlertCircle, Ban } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users, Calendar as CalendarIcon, AlertCircle, Ban } from "lucide-react";
 import StaffBookingWizard from "./booking-wizard";
 import BookingDetailsModal from "./booking-details-modal"; 
+import TimelineCalendar from "./timeline-calendar"; // Import New Component
+import { useRouter } from "next/navigation";
 
-export default function TimelineView({ locations, bookings }: { locations: any[], bookings: any[] }) {
+// FIX: Accept dateStr prop
+export default function TimelineView({ locations, bookings, dateStr }: { locations: any[], bookings: any[], dateStr: string }) {
+  const router = useRouter();
   const [activeLocationId, setActiveLocationId] = useState<string>("all");
   const [showWizard, setShowWizard] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false); // Toggle for Calendar Popover
   const [searchTerm, setSearchTerm] = useState("");
   
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const [transferBooking, setTransferBooking] = useState<any>(null);
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  // Parse Current Date from URL Prop
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const currentDate = new Date(y, m - 1, d);
+  
+  // Format for Header (e.g., "Saturday, Jan 31")
+  const headerDate = currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
-  // 1. FILTERING LOGIC
+  // NAVIGATION HANDLERS
+  const changeDate = (days: number) => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() + days);
+    const newStr = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}-${String(newDate.getDate()).padStart(2, '0')}`;
+    router.push(`?date=${newStr}`);
+  };
+
+  const handleDateSelect = (newDateStr: string) => {
+    router.push(`?date=${newDateStr}`);
+  };
+
+  // FILTERING
   const filteredBookings = bookings.filter(b => {
     const matchesLoc = activeLocationId === "all" || b.tables.some((t: any) => t.locationId === activeLocationId);
     const term = searchTerm.toLowerCase();
@@ -71,16 +93,40 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
       </div>
 
       {/* CONTROLS */}
-      <div className="flex flex-col xl:flex-row gap-4 justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col xl:flex-row gap-4 justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm relative">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3">
-             <button className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400"><ChevronLeft className="w-5 h-5"/></button>
-             <div>
-               <h2 className="text-lg font-bold text-gray-900 leading-none">{today}</h2>
-               <p className="text-xs font-bold text-orange-600 uppercase tracking-wide mt-1">Service Live</p>
+          <div className="flex items-center gap-3 relative">
+             {/* LEFT ARROW */}
+             <button onClick={() => changeDate(-1)} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 active:scale-90 transition-transform"><ChevronLeft className="w-5 h-5"/></button>
+             
+             {/* DATE DISPLAY + POPUP TRIGGER */}
+             <div className="relative">
+                <button 
+                  onClick={() => setShowCalendar(!showCalendar)}
+                  className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                >
+                   <div>
+                     <h2 className="text-lg font-bold text-gray-900 leading-none">{headerDate}</h2>
+                     <p className="text-xs font-bold text-orange-600 uppercase tracking-wide mt-1 flex items-center gap-1">
+                        <CalendarIcon className="w-3 h-3"/> {showCalendar ? "Close Calendar" : "Change Date"}
+                     </p>
+                   </div>
+                </button>
+
+                {/* CALENDAR POPOVER */}
+                {showCalendar && (
+                  <TimelineCalendar 
+                    currentDate={currentDate} 
+                    onSelect={handleDateSelect}
+                    onClose={() => setShowCalendar(false)} 
+                  />
+                )}
              </div>
-             <button className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400"><ChevronRight className="w-5 h-5"/></button>
+
+             {/* RIGHT ARROW */}
+             <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 active:scale-90 transition-transform"><ChevronRight className="w-5 h-5"/></button>
           </div>
+
           <div className="hidden md:flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
             <div className="text-center">
               <span className="block text-xl font-black text-gray-900 leading-none">{filteredBookings.length}</span>
@@ -93,6 +139,7 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
             </div>
           </div>
         </div>
+        
         <div className="flex bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
           <button onClick={() => setActiveLocationId("all")} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeLocationId === "all" ? "bg-white text-black shadow-sm" : "text-gray-500 hover:text-gray-900"}`}>All Areas</button>
           {locations.map(loc => (
@@ -114,12 +161,11 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
         ) : (
           <div className="p-4 grid gap-3">
             {filteredBookings.map((booking: any) => {
-              const status = booking.status || "PENDING"; // Default to PENDING if null
+              const status = booking.status || "PENDING";
               const isCancelled = status === "CANCELLED";
               const isConfirmed = status === "CONFIRMED";
               const isPending = status === "PENDING";
 
-              // DYNAMIC STYLING BASED ON STATUS
               let borderClass = "border-gray-100 hover:border-orange-300";
               let bgClass = "bg-white hover:bg-gray-50";
               let opacityClass = "opacity-100";
@@ -128,7 +174,7 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
               if (isPending) {
                 borderClass = "border-blue-300 ring-1 ring-blue-100 shadow-sm";
                 bgClass = "bg-blue-50/50 hover:bg-blue-50";
-                timeBadgeClass = "bg-blue-600 text-white"; // Highlight time for new bookings
+                timeBadgeClass = "bg-blue-600 text-white"; 
               } else if (isConfirmed) {
                  borderClass = "border-green-200";
                  bgClass = "bg-green-50/30 hover:bg-green-50";
@@ -168,7 +214,6 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
                      </div>
                   </div>
                   
-                  {/* Action Prompt */}
                   <div className="text-sm font-bold text-gray-400 group-hover:text-blue-600 flex items-center gap-1 transition-colors">
                       {isPending ? "Review" : "Details"}
                   </div>
