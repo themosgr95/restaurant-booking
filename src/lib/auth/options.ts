@@ -6,7 +6,6 @@ import { prisma } from "@/lib/db/prisma";
 import { compare } from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
-  // Point to your custom login page
   pages: {
     signIn: '/auth/signin',
     error: '/auth/error', 
@@ -17,19 +16,14 @@ export const authOptions: NextAuthOptions = {
   },
   
   providers: [
-    // 1. Google Login
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     }),
-    
-    // 2. Apple Login
     AppleProvider({
       clientId: process.env.APPLE_ID || "",
       clientSecret: process.env.APPLE_SECRET || "",
     }),
-    
-    // 3. Email/Password Login
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -37,31 +31,18 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        // 1. Check if inputs exist
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
+        if (!credentials?.email || !credentials?.password) return null;
         
-        // 2. Find user in DB
         const user = await prisma.user.findUnique({
           where: { email: credentials.email }
         });
 
-        // 3. If no user found, return null
-        if (!user) {
-          return null;
-        }
+        if (!user) return null;
 
-        // 4. Verify Password
-        // FIX: We use 'user.password' here (not passwordHash)
-        // We add '|| ""' to prevent errors if the user has no password (e.g. Google-only account)
         const isPasswordValid = await compare(credentials.password, user.password || "");
 
-        if (!isPasswordValid) {
-          return null;
-        }
+        if (!isPasswordValid) return null;
 
-        // 5. Return User Data
         return {
           id: user.id,
           email: user.email,
@@ -73,8 +54,37 @@ export const authOptions: NextAuthOptions = {
   ],
 
   callbacks: {
+    // 1. Handle Auto-Registration for Google/Apple
+    async signIn({ user, account }) {
+      if (account?.provider === "google" || account?.provider === "apple") {
+        try {
+          // Check if user exists
+          const existingUser = await prisma.user.findUnique({
+             where: { email: user.email! }
+          });
+
+          if (!existingUser) {
+            // Create new user if they don't exist
+            await prisma.user.create({
+              data: {
+                email: user.email!,
+                name: user.name || "New User",
+                image: user.image,
+                role: "STAFF", // Default role
+              }
+            });
+          }
+          return true;
+        } catch (error) {
+          console.log("OAuth Creation Error", error);
+          return false;
+        }
+      }
+      return true;
+    },
+
     async session({ session, token }) {
-      // Pass ID and Role to the frontend session
+      // Ensure we fetch the latest role from DB or Token
       return {
         ...session,
         user: {
@@ -84,13 +94,21 @@ export const authOptions: NextAuthOptions = {
         }
       }
     },
-    async jwt({ token, user }) {
-      // Initial sign in: Add ID and Role to the token
+
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
-        // @ts-ignore: 'role' is not on standard User type, but we added it in Prisma
+        // @ts-ignore
         token.role = user.role;
       }
+      
+      // OPTIONAL: Reload role from DB on every request to ensure accuracy
+      // This is useful if you manually change a user's role in the DB
+      if (!token.role && token.email) {
+         const dbUser = await prisma.user.findUnique({ where: { email: token.email }});
+         if (dbUser) token.role = dbUser.role;
+      }
+
       return token;
     }
   }
