@@ -164,21 +164,25 @@ model TableLock {
 // --- BOOKINGS ---
 
 model Booking {
-  id             String   @id @default(cuid())
-  date           DateTime
-  time           String
-  guests         Int
-  customerName   String
-  customerEmail  String?
-  customerPhone  String?
-  notes          String?  // <--- ADD THIS LINE
+  id            String   @id @default(cuid())  // <--- MUST BE 'id'
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
   
-  // ... (keep the rest the same)
-  restaurantId   String
-  restaurant     Restaurant @relation(fields: [restaurantId], references: [id])
-  bookingTables  BookingTable[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  date          DateTime
+  time          String
+  guests        Int
+  customerName  String
+  customerEmail String?
+  customerPhone String?
+  notes         String?
+  
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+
+  bookingTables BookingTable[]
+  
+  // The new field we need:
+  status        String   @default("PENDING") 
 }
 
 // Explicit Join Table for Booking <-> Table

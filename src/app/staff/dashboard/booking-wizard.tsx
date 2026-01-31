@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck, ArrowRightLeft } from "lucide-react";
+import { useRouter } from "next/navigation"; // <--- This was missing!
 
 // HELPER: Format Date as YYYY-MM-DD (Local) to prevent Timezone shifts
 function getLocalDateString(date: Date) {
@@ -228,22 +228,17 @@ function StepTwo({ data, onBack, onNext }: any) {
              <button key={table.id} onClick={() => setSelectedTable(table)} className={`p-4 rounded-xl border-2 text-left relative ${selectedTable?.id === table.id ? "border-blue-600 bg-blue-50" : "border-gray-100 bg-white"}`}>
                <div className="font-bold text-gray-900">{table.name}</div>
                <div className="text-xs text-gray-500 mb-4">{table.capacity} Seats</div>
-               
-               {/* FIX: VISUAL DISPLAY FOR NEXT BOOKING */}
                <div className="absolute bottom-4 right-4 text-xs font-bold flex items-center gap-1">
                  {table.nextBookingTime ? (
-                   // Case 1: Has a next booking -> Show Orange "Until XX:XX"
                    <span className="text-orange-600 bg-orange-100 px-2 py-1 rounded-md flex items-center gap-1">
                      <Clock className="w-3 h-3" /> Until {table.nextBookingTime}
                    </span>
                  ) : (
-                   // Case 2: No next booking -> Show Green Infinity
                    <span className="text-green-600 bg-green-100 px-2 py-1 rounded-md flex items-center gap-1">
                      <InfinityIcon className="w-3 h-3" /> Free
                    </span>
                  )}
                </div>
-
              </button>
            ))}
         </div>
@@ -280,8 +275,8 @@ function StepThree({ data, onBack, onNext }: any) {
   );
 }
 
-// --- STEP 4: SUCCESS ---
-function StepSuccess({ data, onClose }: any) {
+// --- STEP 4: SUCCESS (Create & Transfer) ---
+function StepSuccess({ data, onClose, isEditMode, editId }: any) {
   const router = useRouter();
   const [saving, setSaving] = useState(true);
   const [error, setError] = useState("");
@@ -289,40 +284,74 @@ function StepSuccess({ data, onClose }: any) {
   useEffect(() => {
     const saveBooking = async () => {
       const dateStr = getLocalDateString(data.date);
-      const res = await fetch("/api/restaurant/create-booking-manual", {
-        method: "POST",
-        body: JSON.stringify({...data, date: dateStr})
+      
+      let url = "/api/restaurant/create-booking-manual";
+      let method = "POST";
+      let body: any = { ...data, date: dateStr };
+
+      if (isEditMode && editId) {
+        url = `/api/restaurant/booking/${editId}`;
+        method = "PATCH";
+        body = { 
+          transfer: true, 
+          date: dateStr,
+          time: data.time,
+          tableId: data.table.id 
+        };
+      }
+
+      const res = await fetch(url, {
+        method: method,
+        body: JSON.stringify(body)
       });
-      if (res.ok) { setSaving(false); router.refresh(); } else { setError("Booking failed."); }
+
+      if (res.ok) { 
+        setSaving(false); 
+        router.refresh(); 
+      } else { 
+        setError("Operation failed."); 
+      }
     };
     saveBooking();
   }, []);
 
   if (error) return <div className="text-center p-10 font-bold text-red-500">{error}</div>;
-  if (saving) return <div className="text-center p-10 font-bold">Saving...</div>;
+  if (saving) return <div className="text-center p-10 font-bold">{isEditMode ? "Transferring..." : "Saving..."}</div>;
 
   return (
     <div className="text-center py-8">
        <CalendarCheck className="w-16 h-16 text-green-600 mx-auto mb-4" />
-       <h2 className="text-2xl font-black mb-2">Confirmed!</h2>
+       <h2 className="text-2xl font-black mb-2">{isEditMode ? "Transferred!" : "Confirmed!"}</h2>
        <button onClick={onClose} className="w-full bg-black text-white py-3 rounded-xl font-bold">Close</button>
     </div>
   );
 }
 
 // --- MAIN COMPONENT ---
-export default function StaffBookingWizard({ locations, onClose }: { locations: any[], onClose: () => void }) {
+export default function StaffBookingWizard({ locations, onClose, editBooking }: { locations: any[], onClose: () => void, editBooking?: any }) {
   const [step, setStep] = useState(1);
-  const [bookingData, setBookingData] = useState<any>({});
+  const [bookingData, setBookingData] = useState<any>(editBooking ? {
+    guests: editBooking.guests,
+  } : {});
+
   const goNext = (data: any) => { setBookingData({...bookingData, ...data}); setStep(step + 1); };
   const goBack = () => setStep(step - 1);
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6">
+        
+        {editBooking && step === 1 && (
+            <div className="mb-4 bg-blue-50 text-blue-700 p-3 rounded-lg text-sm font-bold flex items-center gap-2">
+                <ArrowRightLeft className="w-4 h-4" />
+                Transferring: {editBooking.customerName}
+            </div>
+        )}
+
         {step === 1 && <StepOne onNext={goNext} onClose={onClose} locations={locations} />}
         {step === 2 && <StepTwo data={bookingData} onBack={goBack} onNext={goNext} />}
         {step === 3 && <StepThree data={bookingData} onBack={goBack} onNext={goNext} />}
-        {step === 4 && <StepSuccess data={bookingData} onClose={onClose} />}
+        {step === 4 && <StepSuccess data={bookingData} onClose={onClose} isEditMode={!!editBooking} editId={editBooking?.id} />}
       </div>
     </div>
   );

@@ -1,19 +1,36 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Calendar, Users, ChevronLeft, ChevronRight, Plus, CheckCircle, Bell } from "lucide-react";
+// FIX: Added 'Users' to the import list below
+import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users } from "lucide-react";
 import StaffBookingWizard from "./booking-wizard";
+import BookingDetailsModal from "./booking-details-modal"; 
 
 export default function TimelineView({ locations, bookings }: { locations: any[], bookings: any[] }) {
   const [activeLocationId, setActiveLocationId] = useState<string>("all");
   const [showWizard, setShowWizard] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   
+  // New State for Details & Transfer
+  const [selectedBooking, setSelectedBooking] = useState<any>(null);
+  const [transferBooking, setTransferBooking] = useState<any>(null);
+
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
-  // Filter Bookings
-  const filteredBookings = activeLocationId === "all"
-    ? bookings
-    : bookings.filter(b => b.tables.some((t: any) => t.locationId === activeLocationId));
+  // 1. FILTERING LOGIC (Location + Search)
+  const filteredBookings = bookings.filter(b => {
+    // Location Filter
+    const matchesLoc = activeLocationId === "all" || b.tables.some((t: any) => t.locationId === activeLocationId);
+    
+    // Search Filter
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = !term || 
+        b.customerName.toLowerCase().includes(term) || 
+        (b.customerEmail && b.customerEmail.toLowerCase().includes(term)) ||
+        (b.customerPhone && b.customerPhone.includes(term));
+
+    return matchesLoc && matchesSearch;
+  });
 
   const totalGuests = filteredBookings.reduce((sum: number, b: any) => sum + b.guests, 0);
 
@@ -23,29 +40,18 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
 
   useEffect(() => {
     if (bookings.length > prevBookingCount) {
-      if (audioRef.current) {
-        audioRef.current.play().catch(e => console.log("Audio play blocked"));
-      }
+      if (audioRef.current) audioRef.current.play().catch(e => console.log("Audio blocked"));
     }
     setPrevBookingCount(bookings.length);
   }, [bookings.length]);
 
-  const handleMarkLeft = async (bookingId: string) => {
-    if (!confirm("Did the guests leave? This will clear the table for the next Ding!")) return;
-    const res = await fetch("/api/restaurant/booking/finish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId }),
-    });
-    if (res.ok) window.location.reload(); 
-  };
-
   return (
     <div className="space-y-6">
-      {/* Hidden Ding! Sound Source */}
       <audio ref={audioRef} src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" />
 
-      {/* Booking Wizard (Condition: showWizard) */}
+      {/* --- MODALS --- */}
+      
+      {/* 1. New Booking Wizard */}
       {showWizard && (
         <StaffBookingWizard 
           locations={locations} 
@@ -53,8 +59,30 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
         />
       )}
 
-      {/* Header: Ding! */}
-      <div className="flex items-center justify-between mb-2">
+      {/* 2. Transfer Wizard (Reuses Wizard but passes editBooking) */}
+      {transferBooking && (
+        <StaffBookingWizard 
+          locations={locations} 
+          onClose={() => setTransferBooking(null)}
+          editBooking={transferBooking} 
+        />
+      )}
+
+      {/* 3. Details Modal */}
+      {selectedBooking && (
+        <BookingDetailsModal 
+           booking={selectedBooking} 
+           onClose={() => setSelectedBooking(null)}
+           onTransfer={() => {
+             setTransferBooking(selectedBooking); // Start Transfer
+             setSelectedBooking(null); // Close Details
+           }}
+        />
+      )}
+
+
+      {/* --- HEADER --- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
         <div className="flex items-center gap-3">
           <div className="bg-orange-500 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg shadow-orange-200">
             <Bell className="w-6 h-6 fill-current" />
@@ -64,8 +92,20 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Service Management</p>
           </div>
         </div>
+
+        {/* SEARCH BAR */}
+        <div className="relative w-full md:w-96 group">
+            <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400 group-focus-within:text-orange-500 transition-colors" />
+            <input 
+              placeholder="Search guest name, phone, email..." 
+              className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl font-bold text-sm focus:outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all shadow-sm"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
       </div>
 
+      {/* --- CONTROLS --- */}
       <div className="flex flex-col xl:flex-row gap-4 justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3">
@@ -77,7 +117,7 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
              <button className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400"><ChevronRight className="w-5 h-5"/></button>
           </div>
 
-          <div className="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+          <div className="hidden md:flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
             <div className="text-center">
               <span className="block text-xl font-black text-gray-900 leading-none">{filteredBookings.length}</span>
               <span className="text-[10px] text-gray-500 font-bold uppercase">Dings</span>
@@ -97,37 +137,56 @@ export default function TimelineView({ locations, bookings }: { locations: any[]
           ))}
         </div>
 
-        <button onClick={() => setShowWizard(true)} className="flex items-center gap-2 bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-orange-700 shadow-md shadow-orange-100 transition-all active:scale-95">
+        <button onClick={() => setShowWizard(true)} className="flex items-center gap-2 bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-orange-700 shadow-md shadow-orange-100 transition-all active:scale-95 whitespace-nowrap">
           <Plus className="w-4 h-4" /> New Ding!
         </button>
       </div>
 
+      {/* --- BOOKING LIST --- */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[400px]">
         {filteredBookings.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[400px] text-center text-gray-400">
              <Bell className="w-12 h-12 mb-2 opacity-10" />
-             <p className="font-medium">Quiet service... no Dings! yet.</p>
+             <p className="font-medium">{searchTerm ? "No guests found matching search." : "Quiet service... no Dings! yet."}</p>
           </div>
         ) : (
           <div className="p-4 grid gap-3">
             {filteredBookings.map((booking: any) => {
-              const isFinished = booking.notes?.includes("COMPLETED");
+              const isFinished = booking.status === "COMPLETED"; 
+              const isCancelled = booking.status === "CANCELLED";
+              const isConfirmed = booking.status === "CONFIRMED";
+
               return (
-                <div key={booking.id} className={`p-4 border rounded-lg flex justify-between items-center group transition-all ${isFinished ? 'bg-gray-50 border-transparent' : 'border-gray-100 hover:border-orange-200 hover:shadow-sm'}`}>
+                <div 
+                   key={booking.id} 
+                   onClick={() => setSelectedBooking(booking)} // CLICK TO OPEN DETAILS
+                   className={`p-4 border rounded-lg flex justify-between items-center group cursor-pointer transition-all 
+                     ${isCancelled ? 'bg-red-50 border-red-100 opacity-60' : 
+                       isFinished ? 'bg-gray-50 border-transparent' : 
+                       'border-gray-100 hover:border-orange-300 hover:shadow-md hover:bg-orange-50/10'}`}
+                >
                   <div className="flex items-center gap-4">
-                     <div className={`px-3 py-1 rounded font-bold text-sm ${isFinished ? 'bg-gray-200 text-gray-400' : 'bg-orange-50 text-orange-700'}`}>{booking.time}</div>
+                     <div className={`px-3 py-1 rounded font-bold text-sm 
+                        ${isCancelled ? 'bg-red-200 text-red-700' : 
+                          isConfirmed ? 'bg-green-100 text-green-700' : 
+                          'bg-orange-50 text-orange-700'}`}>
+                        {booking.time}
+                     </div>
                      <div>
-                       <div className={`font-bold ${isFinished ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{booking.customerName}</div>
-                       <div className="text-xs text-gray-500 flex items-center gap-1"><Users className="w-3 h-3" /> {booking.guests} Guests • {booking.tables.map((t:any) => t.name).join(", ")}</div>
+                       <div className={`font-bold text-lg ${isFinished || isCancelled ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                           {booking.customerName}
+                       </div>
+                       <div className="text-xs text-gray-500 flex items-center gap-1 font-medium">
+                           <Users className="w-3 h-3" /> {booking.guests} • {booking.tables.map((t:any) => t.name).join(", ")}
+                           {isConfirmed && <span className="text-green-600 flex items-center gap-0.5 ml-2"><CheckCircle className="w-3 h-3"/> Confirmed</span>}
+                       </div>
                      </div>
                   </div>
-                  {!isFinished ? (
-                    <button onClick={() => handleMarkLeft(booking.id)} className="opacity-0 group-hover:opacity-100 transition-opacity bg-white text-gray-600 px-3 py-1 rounded-md text-xs font-bold border border-gray-200 hover:bg-orange-600 hover:text-white hover:border-orange-600 flex items-center gap-1 shadow-sm">
-                      <CheckCircle className="w-3 h-3" /> Clear Table
-                    </button>
-                  ) : (
-                    <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest px-2 py-1 bg-gray-100 rounded">Service Done</span>
-                  )}
+                  
+                  {/* Quick Action */}
+                  <div className="text-gray-300 group-hover:text-orange-400 transition-colors">
+                      <ChevronRight className="w-5 h-5" />
+                  </div>
                 </div>
               );
             })}
