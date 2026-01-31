@@ -7,7 +7,6 @@ export async function GET(req: Request) {
     const locationId = searchParams.get("locationId");
     const guests = parseInt(searchParams.get("guests") || "2");
     
-    // Parse Year/Month robustly
     const today = new Date();
     const month = parseInt(searchParams.get("month") || today.getMonth().toString());
     const year = parseInt(searchParams.get("year") || today.getFullYear().toString());
@@ -15,12 +14,11 @@ export async function GET(req: Request) {
     if (!locationId) return NextResponse.json([], { status: 400 });
 
     // 1. Get Location Rules
-    // We fetch a slightly wider range of closures to be safe
     const location = await prisma.location.findUnique({
       where: { id: locationId },
       include: {
         openingHours: true,
-        specialClosures: true, // Fetch all closures to avoid date math errors in query
+        specialClosures: true, 
         tables: {
           where: { capacity: { gte: guests } },
           select: { id: true }
@@ -33,6 +31,7 @@ export async function GET(req: Request) {
     }
 
     // 2. Fetch Bookings
+    // We use a wide range to ensure we catch everything, regardless of timezone
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
@@ -43,37 +42,43 @@ export async function GET(req: Request) {
       }
     });
 
-    // 3. Calculate Status (Green/Red)
-    const daysInMonth = endDate.getDate(); // e.g., 31
+    // 3. Calculate Status
+    const daysInMonth = endDate.getDate();
     const dateStatus: Record<string, string> = {}; 
 
     for (let d = 1; d <= daysInMonth; d++) {
-      // FIX: Create the date string MANUALLY to avoid Timezone shifts
-      // "2026-01-05"
-      const dayString = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      
-      // Create a specific date object to check the Day of Week (0-6)
-      // We set it to Noon (12:00) to safely avoid any DST shifts
+      // FIX: Construct string MANUALLY to guarantee "2026-01-05" stays "2026-01-05"
+      const currentMonthStr = String(month + 1).padStart(2, '0');
+      const currentDayStr = String(d).padStart(2, '0');
+      const dayString = `${year}-${currentMonthStr}-${currentDayStr}`;
+
+      // Create a date at NOON (12:00) to safely check the day of the week
+      // This prevents "Midnight" shifting to the previous day
       const checkDate = new Date(year, month, d, 12, 0, 0);
       const dayOfWeek = checkDate.getDay(); // 0=Sun, 1=Mon...
 
       // --- CHECK 1: IS IT CLOSED? ---
       const specialClosure = location.specialClosures.find(c => {
+         // Convert closure date to YYYY-MM-DD string to match
          const cDate = new Date(c.date);
-         return cDate.toISOString().split('T')[0] === dayString;
+         const cString = cDate.toISOString().split('T')[0];
+         return cString === dayString;
       });
       
       const regularHours = location.openingHours.find(oh => oh.dayOfWeek === dayOfWeek);
 
-      // If closed by special event OR no regular hours exist -> RED
+      // RED if closed by special event OR no regular hours found for this day of week
       if ((specialClosure && specialClosure.isClosed) || (!specialClosure && !regularHours)) {
         dateStatus[dayString] = "red";
         continue;
       }
 
       // --- CHECK 2: CAPACITY ---
-      // Compare string-to-string to be 100% sure
-      const dayBookings = bookings.filter(b => b.date.toISOString().split('T')[0] === dayString);
+      // Filter bookings by matching the day string exactly
+      const dayBookings = bookings.filter(b => {
+         const bString = b.date.toISOString().split('T')[0];
+         return bString === dayString;
+      });
       
       const turnsPerTable = 5; 
       const totalCapacity = location.tables.length * turnsPerTable;

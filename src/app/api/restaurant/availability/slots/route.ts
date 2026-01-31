@@ -9,12 +9,13 @@ export async function GET(req: Request) {
 
   if (!dateStr || !locationId) return NextResponse.json([], { status: 400 });
 
-  // FIX: Parse manually to ensure correct Day of Week
+  // FIX: Parse "2026-01-05" manually to avoid timezone shift
   const [y, m, d] = dateStr.split('-').map(Number);
-  const targetDate = new Date(y, m - 1, d, 12, 0, 0); // Noon to match Dates API
+  // Create date at NOON (12:00) to strictly identify the Day of Week
+  const targetDate = new Date(y, m - 1, d, 12, 0, 0); 
   const dayOfWeek = targetDate.getDay(); 
 
-  // 1. Get Location & Opening Hours
+  // 1. Get Location & Opening Hours for THIS Day
   const location = await prisma.location.findUnique({ 
     where: { id: locationId },
     include: {
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
     }
   });
 
-  // If no hours found for this day -> Closed
+  // If no hours found -> Closed
   if (!location || location.openingHours.length === 0) {
     return NextResponse.json([]); 
   }
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
   const hours = location.openingHours[0]; 
   const duration = location.turnoverTime || 90;
 
-  // 2. Find Candidate Tables
+  // 2. Find Tables
   const tables = await prisma.table.findMany({
     where: {
       locationId: locationId,
@@ -52,27 +53,24 @@ export async function GET(req: Request) {
 
   if (tables.length === 0) return NextResponse.json([]);
 
-  // 3. Generate Time Slots DYNAMICALLY (09:00 - 17:00)
+  // 3. Generate Times
   const [startH, startM] = hours.opensAt.split(':').map(Number);
   const [endH, endM] = hours.closesAt.split(':').map(Number);
   
   const timeSlots = [];
   
-  // Use a temporary date just for generating time strings
-  // We use 2000-01-01 to avoid DST issues during time generation
+  // Use a neutral date (Year 2000) to generate time strings without DST issues
   let currentSlot = new Date(2000, 0, 1, startH, startM);
   const closeTime = new Date(2000, 0, 1, endH, endM);
 
   while (currentSlot < closeTime) {
-    // Force "en-GB" (24h format) to match database strings
     const timeString = currentSlot.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     timeSlots.push(timeString);
     currentSlot.setMinutes(currentSlot.getMinutes() + 30);
   }
 
-  // 4. Filter Available Slots
+  // 4. Filter Available
   const availableSlots = timeSlots.filter(slotTime => {
-    // Construct real Date objects for collision checking
     const slotStart = new Date(`${dateStr}T${slotTime}:00`);
     const slotEnd = new Date(slotStart.getTime() + duration * 60000);
 
