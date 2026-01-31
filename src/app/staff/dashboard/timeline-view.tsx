@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users, Calendar as CalendarIcon, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users, Calendar as CalendarIcon, RotateCcw, LogOut } from "lucide-react";
 import StaffBookingWizard from "./booking-wizard";
 import BookingDetailsModal from "./booking-details-modal"; 
 import TimelineCalendar from "./timeline-calendar"; 
@@ -17,12 +17,11 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const [transferBooking, setTransferBooking] = useState<any>(null);
 
-  // Parse Date
   const [y, m, d] = dateStr.split('-').map(Number);
   const currentDate = new Date(y, m - 1, d);
   const headerDate = currentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
-  // Navigation
+  // HANDLERS
   const changeDate = (days: number) => {
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() + days);
@@ -36,18 +35,32 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
     router.push(`?date=${todayStr}`);
   };
 
-  const handleDateSelect = (newDateStr: string) => {
-    router.push(`?date=${newDateStr}`);
+  const handleDateSelect = (newDateStr: string) => { router.push(`?date=${newDateStr}`); };
+
+  // MARK AS LEFT
+  const handleMarkAsLeft = async (e: React.MouseEvent, bookingId: string) => {
+    e.stopPropagation(); // Prevent opening modal
+    if (!confirm("Guest has left? This will free the table.")) return;
+
+    await fetch(`/api/restaurant/booking/${bookingId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "COMPLETED" }) // Mark as Completed
+    });
+    router.refresh();
   };
 
-  // Filtering
+  // FILTERING (Live Search)
   const filteredBookings = bookings.filter(b => {
     const matchesLoc = activeLocationId === "all" || b.tables.some((t: any) => t.locationId === activeLocationId);
+    
+    // PARTIAL MATCH SEARCH LOGIC
     const term = searchTerm.toLowerCase();
     const matchesSearch = !term || 
         b.customerName.toLowerCase().includes(term) || 
         (b.customerEmail && b.customerEmail.toLowerCase().includes(term)) ||
         (b.customerPhone && b.customerPhone.includes(term));
+        
     return matchesLoc && matchesSearch;
   });
 
@@ -113,19 +126,11 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
                      </p>
                    </div>
                 </button>
-
-                {showCalendar && (
-                  <TimelineCalendar 
-                    currentDate={currentDate} 
-                    onSelect={handleDateSelect}
-                    onClose={() => setShowCalendar(false)} 
-                  />
-                )}
+                {showCalendar && <TimelineCalendar currentDate={currentDate} onSelect={handleDateSelect} onClose={() => setShowCalendar(false)} />}
              </div>
 
              <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 active:scale-90 transition-transform"><ChevronRight className="w-5 h-5"/></button>
              
-             {/* TODAY BUTTON */}
              <button onClick={goToToday} className="ml-2 flex items-center gap-1 bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-200 hover:text-black transition-colors">
                 <RotateCcw className="w-3 h-3" /> Today
              </button>
@@ -167,6 +172,7 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
             {filteredBookings.map((booking: any) => {
               const status = booking.status || "PENDING";
               const isCancelled = status === "CANCELLED";
+              const isCompleted = status === "COMPLETED"; // Left/Finished
               const isConfirmed = status === "CONFIRMED";
               const isPending = status === "PENDING";
 
@@ -188,6 +194,11 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
                  bgClass = "bg-red-50/50";
                  opacityClass = "opacity-60 grayscale";
                  timeBadgeClass = "bg-red-100 text-red-700 decoration-line-through";
+              } else if (isCompleted) {
+                 borderClass = "border-gray-200";
+                 bgClass = "bg-gray-100";
+                 opacityClass = "opacity-70";
+                 timeBadgeClass = "bg-gray-300 text-gray-600";
               }
 
               return (
@@ -208,6 +219,7 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
                           {isPending && <span className="animate-pulse bg-blue-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide">NEW</span>}
                           {isConfirmed && <CheckCircle className="w-4 h-4 text-green-500" />}
                           {isCancelled && <span className="bg-red-100 text-red-600 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Cancelled</span>}
+                          {isCompleted && <span className="bg-gray-200 text-gray-600 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">Finished</span>}
                        </div>
                        
                        <div className="text-xs text-gray-500 flex items-center gap-1 font-medium mt-1">
@@ -216,8 +228,22 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
                      </div>
                   </div>
                   
-                  <div className="text-sm font-bold text-gray-400 group-hover:text-blue-600 flex items-center gap-1 transition-colors">
-                      {isPending ? "Review" : "Details"}
+                  {/* ACTIONS */}
+                  <div className="flex items-center gap-2">
+                      {/* LEAVE BUTTON (Only for Active/Confirmed bookings) */}
+                      {!isCancelled && !isCompleted && (
+                        <button 
+                          onClick={(e) => handleMarkAsLeft(e, booking.id)}
+                          className="p-2 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all"
+                          title="Mark as Left / Free Table"
+                        >
+                          <LogOut className="w-4 h-4" />
+                        </button>
+                      )}
+                      
+                      <div className="text-sm font-bold text-gray-400 group-hover:text-blue-600 transition-colors">
+                          {isPending ? "Review" : "Details"}
+                      </div>
                   </div>
                 </div>
               );

@@ -27,7 +27,6 @@ function StepOne({ onNext, onClose, locations }: any) {
   const [loadingDates, setLoadingDates] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // 1. Fetch Dates
   useEffect(() => {
     if (!locationId) return;
     const fetchDates = async () => {
@@ -42,7 +41,6 @@ function StepOne({ onNext, onClose, locations }: any) {
     fetchDates();
   }, [locationId, guests, currentMonth]);
 
-  // 2. Fetch Slots
   useEffect(() => {
     if (!selectedDate || !locationId) {
         setAvailableSlots([]);
@@ -65,15 +63,12 @@ function StepOne({ onNext, onClose, locations }: any) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* HEADER (Fixed) */}
       <div className="flex justify-between items-center mb-4 shrink-0">
         <h2 className="text-xl font-bold">New Reservation</h2>
         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
-      {/* SCROLLABLE BODY */}
       <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-          {/* Inputs */}
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-bold text-gray-500 mb-1">1. Location</label>
@@ -102,7 +97,6 @@ function StepOne({ onNext, onClose, locations }: any) {
             </div>
           </div>
 
-          {/* Calendar */}
           <div className={`transition-all duration-300 ${!locationId ? "opacity-50 blur-sm pointer-events-none" : "opacity-100"}`}>
              <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">3. Select Date</label>
              <div className="border rounded-xl p-4 bg-gray-50/50">
@@ -167,7 +161,6 @@ function StepOne({ onNext, onClose, locations }: any) {
                 </div>
              </div>
 
-             {/* Time Slots */}
              {selectedDate && (
                  <div className="mt-4 animate-in slide-in-from-top-2 duration-300 pb-4">
                     <label className="block text-xs font-bold text-gray-500 mb-2">4. Available Times</label>
@@ -194,7 +187,6 @@ function StepOne({ onNext, onClose, locations }: any) {
           </div>
       </div>
 
-      {/* FOOTER (Fixed) */}
       <div className="pt-4 mt-auto border-t bg-white shrink-0">
           <button 
             disabled={!locationId || !selectedDate || !time} 
@@ -266,9 +258,16 @@ function StepTwo({ data, onBack, onNext }: any) {
   );
 }
 
-// --- STEP 3: DETAILS ---
+// --- STEP 3: DETAILS (UPDATED: AUTO-FILL) ---
 function StepThree({ data, onBack, onNext }: any) {
-  const [details, setDetails] = useState({ name: "", email: "", phone: "", notes: "" });
+  // FIX: Initialize with data if available (Transfer Mode)
+  const [details, setDetails] = useState({ 
+    name: data.customerName || "", 
+    email: data.customerEmail || "", 
+    phone: data.customerPhone || "", 
+    notes: data.notes || "" 
+  });
+
   return (
     <div className="flex flex-col h-full">
        <div className="flex items-center gap-2 mb-4 shrink-0">
@@ -337,23 +336,27 @@ function StepSuccess({ data, onClose, isEditMode, editId }: any) {
 // --- MAIN COMPONENT ---
 export default function StaffBookingWizard({ locations, onClose, editBooking }: { locations: any[], onClose: () => void, editBooking?: any }) {
   const [step, setStep] = useState(1);
-  const [bookingData, setBookingData] = useState<any>(editBooking ? { guests: editBooking.guests } : {});
+  // FIX: Pre-fill bookingData with all customer details for Transfer
+  const [bookingData, setBookingData] = useState<any>(editBooking ? { 
+    guests: editBooking.guests,
+    customerName: editBooking.customerName,
+    customerEmail: editBooking.customerEmail,
+    customerPhone: editBooking.customerPhone,
+    notes: editBooking.notes
+  } : {});
+  
   const goNext = (data: any) => { setBookingData({...bookingData, ...data}); setStep(step + 1); };
   const goBack = () => setStep(step - 1);
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      {/* ADDED: h-[90vh] and flex-col to fix height issues */}
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 h-[90vh] flex flex-col">
-        
         {editBooking && step === 1 && (
             <div className="mb-4 bg-blue-50 text-blue-700 p-3 rounded-lg text-sm font-bold flex items-center gap-2 shrink-0">
                 <ArrowRightLeft className="w-4 h-4" />
                 Transferring: {editBooking.customerName}
             </div>
         )}
-
-        {/* Each step now takes full height and manages its own scrolling */}
         {step === 1 && <StepOne onNext={goNext} onClose={onClose} locations={locations} />}
         {step === 2 && <StepTwo data={bookingData} onBack={goBack} onNext={goNext} />}
         {step === 3 && <StepThree data={bookingData} onBack={goBack} onNext={goNext} />}
