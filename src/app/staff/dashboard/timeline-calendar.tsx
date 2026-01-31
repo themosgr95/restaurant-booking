@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface TimelineCalendarProps {
   currentDate: Date;
@@ -11,7 +11,8 @@ interface TimelineCalendarProps {
 
 export default function TimelineCalendar({ currentDate, onSelect, onClose }: TimelineCalendarProps) {
   const [viewDate, setViewDate] = useState(currentDate);
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  // Store: { "2026-02-04": { bookings: 5, isClosed: true } }
+  const [data, setData] = useState<Record<string, { bookings: number, isClosed: boolean }>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -19,8 +20,8 @@ export default function TimelineCalendar({ currentDate, onSelect, onClose }: Tim
       setLoading(true);
       const res = await fetch(`/api/restaurant/bookings/counts?month=${viewDate.getMonth()}&year=${viewDate.getFullYear()}`);
       if(res.ok) {
-        const data = await res.json();
-        setCounts(data);
+        const json = await res.json();
+        setData(json);
       }
       setLoading(false);
     };
@@ -36,14 +37,12 @@ export default function TimelineCalendar({ currentDate, onSelect, onClose }: Tim
 
   return (
     <div className="absolute top-12 left-0 bg-white border border-gray-200 shadow-xl rounded-xl p-4 z-50 w-72 animate-in fade-in slide-in-from-top-2">
-      {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <button onClick={handlePrev} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft className="w-4 h-4"/></button>
         <span className="font-bold text-gray-900">{viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
         <button onClick={handleNext} className="p-1 hover:bg-gray-100 rounded"><ChevronRight className="w-4 h-4"/></button>
       </div>
 
-      {/* Grid */}
       <div className="grid grid-cols-7 gap-1 mb-2">
         {['S','M','T','W','T','F','S'].map(d => <div key={d} className="text-center text-[10px] font-bold text-gray-400">{d}</div>)}
       </div>
@@ -55,7 +54,10 @@ export default function TimelineCalendar({ currentDate, onSelect, onClose }: Tim
           const dateObj = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
           const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
           
-          const count = counts[dateStr] || 0;
+          const dayData = data[dateStr];
+          const isClosed = dayData?.isClosed;
+          const hasBookings = dayData?.bookings > 0;
+          
           const isSelected = dateStr === currentDate.toISOString().split('T')[0];
           const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
@@ -67,27 +69,28 @@ export default function TimelineCalendar({ currentDate, onSelect, onClose }: Tim
                 h-8 w-8 rounded-lg flex flex-col items-center justify-center relative transition-all
                 ${isSelected ? 'bg-black text-white' : 'hover:bg-gray-100 text-gray-700'}
                 ${isToday && !isSelected ? 'border border-gray-200 font-bold' : ''}
+                ${isClosed && !isSelected ? 'bg-red-50 text-red-300' : ''} 
               `}
             >
               <span className="text-xs leading-none">{d}</span>
               
-              {/* DOT INDICATOR */}
+              {/* INDICATORS */}
               {loading ? null : (
-                 count > 0 && (
-                   <span className={`mt-0.5 h-1 w-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />
-                 )
+                 <div className="flex gap-0.5 mt-0.5">
+                   {isClosed && <span className="h-1 w-1 rounded-full bg-red-500" />}
+                   {!isClosed && hasBookings && <span className={`h-1 w-1 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`} />}
+                 </div>
               )}
             </button>
           );
         })}
       </div>
       
-      {/* Footer Legend */}
-      <div className="mt-3 pt-3 border-t flex justify-center text-[10px] text-gray-400 gap-2">
-         <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-orange-500"/> Has Bookings</span>
+      <div className="mt-3 pt-3 border-t flex justify-center text-[10px] text-gray-400 gap-3">
+         <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-orange-500"/> Bookings</span>
+         <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500"/> Closed</span>
       </div>
       
-      {/* Backdrop to close */}
       <div className="fixed inset-0 -z-10" onClick={onClose} />
     </div>
   );

@@ -8,34 +8,49 @@ export async function GET(req: Request) {
   const year = parseInt(searchParams.get("year") || new Date().getFullYear().toString());
   
   // 1. Define Range
-  const startDate = new Date(year, month, 1);
-  const endDate = new Date(year, month + 1, 0);
+  const startDate = new Date(Date.UTC(year, month, 1));
+  const endDate = new Date(Date.UTC(year, month + 1, 0));
 
-  // 2. Fetch Grouped Counts
-  // We group by "date" to see how many bookings exist per day
+  // 2. Fetch Bookings (Orange Dots)
   const bookings = await prisma.booking.groupBy({
     by: ['date'],
     where: {
       date: { gte: startDate, lte: endDate },
       status: { not: "CANCELLED" },
-      // Optional: Filter by location if selected
       ...(locationId && locationId !== "all" ? {
          bookingTables: { some: { table: { locationId } } }
       } : {})
     },
-    _count: {
-      id: true
+    _count: { id: true }
+  });
+
+  // 3. Fetch CLOSED Days (Red Dots)
+  // We need to check if there is a 'SpecialClosure' for any date in this month
+  const closures = await prisma.specialClosure.findMany({
+    where: {
+      date: { gte: startDate, lte: endDate },
+      isClosed: true
     }
   });
 
-  // 3. Format as Dictionary: { "2026-01-05": 12, "2026-01-06": 4 }
-  const counts: Record<string, number> = {};
+  // 4. Build Response
+  const data: Record<string, { bookings: number, isClosed: boolean }> = {};
+
+  // Fill bookings
   bookings.forEach(b => {
-    // Manually format to YYYY-MM-DD to match frontend helpers
     const d = new Date(b.date);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    counts[dateStr] = b._count.id;
+    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    if (!data[dateStr]) data[dateStr] = { bookings: 0, isClosed: false };
+    data[dateStr].bookings = b._count.id;
   });
 
-  return NextResponse.json(counts);
+  // Fill closures
+  closures.forEach(c => {
+    const d = new Date(c.date);
+    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    if (!data[dateStr]) data[dateStr] = { bookings: 0, isClosed: false };
+    data[dateStr].isClosed = true;
+  });
+
+  return NextResponse.json(data);
 }
