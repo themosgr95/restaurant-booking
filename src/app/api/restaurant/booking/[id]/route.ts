@@ -5,19 +5,17 @@ import { NextResponse } from "next/server";
 
 export async function PATCH(
   req: Request, 
-  { params }: { params: Promise<{ id: string }> } // FIX: Type params as a Promise
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    
-    // FIX: Await the params to get the ID
     const { id } = await params;
     const bookingId = id;
 
-    // ACTION 1: STATUS CHANGE (Cancel / Confirm)
+    // ACTION 1: STATUS CHANGE (Cancel / Confirm / Completed)
     if (body.status) {
       const updated = await prisma.booking.update({
         where: { id: bookingId },
@@ -29,9 +27,7 @@ export async function PATCH(
     // ACTION 2: TRANSFER (Move to new Date/Time/Table)
     if (body.transfer) {
       // 1. Clear old table links
-      await prisma.bookingTable.deleteMany({
-        where: { bookingId: bookingId }
-      });
+      await prisma.bookingTable.deleteMany({ where: { bookingId: bookingId } });
 
       // 2. Update Booking & Link New Table
       const updated = await prisma.booking.update({
@@ -39,10 +35,22 @@ export async function PATCH(
         data: {
           date: new Date(body.date),
           time: body.time,
-          // We assume the wizard already validated availability!
-          bookingTables: {
-            create: { tableId: body.tableId }
-          }
+          bookingTables: { create: { tableId: body.tableId } }
+        }
+      });
+      return NextResponse.json(updated);
+    }
+
+    // ACTION 3: EDIT DETAILS (Name, Email, Phone, Notes)
+    // If none of the above special actions, check for data updates
+    if (body.customerName || body.notes !== undefined || body.customerPhone !== undefined) {
+       const updated = await prisma.booking.update({
+        where: { id: bookingId },
+        data: {
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerPhone: body.customerPhone,
+          notes: body.notes
         }
       });
       return NextResponse.json(updated);
