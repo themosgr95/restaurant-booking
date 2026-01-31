@@ -4,14 +4,20 @@ import { useState, useEffect } from "react";
 import { X, Users, Clock, ArrowRight, ArrowLeft, Infinity as InfinityIcon, MapPin, CalendarCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+// HELPER: Format Date as YYYY-MM-DD (Local) to prevent Timezone shifts
+function getLocalDateString(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // --- STEP 1: SMART CALENDAR ---
 function StepOne({ onNext, onClose, locations }: any) {
   const today = new Date();
   
   const [currentMonth, setCurrentMonth] = useState(today);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  
-  // Stores status: { "2024-01-01": "green", "2024-01-02": "red" }
   const [dateStatuses, setDateStatuses] = useState<Record<string, string>>({});
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [time, setTime] = useState("");
@@ -31,8 +37,6 @@ function StepOne({ onNext, onClose, locations }: any) {
       
       const res = await fetch(`/api/restaurant/availability/dates?locationId=${locationId}&guests=${guests}&year=${year}&month=${month}`);
       const data = await res.json();
-      
-      // Data is now { dates: { "2024-01-01": "green" } }
       setDateStatuses(data.dates || {});
       setLoadingDates(false);
     };
@@ -40,7 +44,7 @@ function StepOne({ onNext, onClose, locations }: any) {
     fetchDates();
   }, [locationId, guests, currentMonth]);
 
-  // 2. Fetch Slots (Keep existing logic)
+  // 2. Fetch Slots
   useEffect(() => {
     if (!selectedDate || !locationId) {
         setAvailableSlots([]);
@@ -48,7 +52,8 @@ function StepOne({ onNext, onClose, locations }: any) {
     }
     const fetchSlots = async () => {
        setLoadingSlots(true);
-       const dateStr = selectedDate.toISOString().split('T')[0];
+       // FIX: Use helper to avoid timezone shift
+       const dateStr = getLocalDateString(selectedDate);
        const res = await fetch(`/api/restaurant/availability/slots?date=${dateStr}&locationId=${locationId}&guests=${guests}`);
        const slots = await res.json();
        setAvailableSlots(slots);
@@ -68,7 +73,6 @@ function StepOne({ onNext, onClose, locations }: any) {
         <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
       </div>
 
-      {/* Inputs for Location & Guests */}
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="block text-xs font-bold text-gray-500 mb-1">1. Location</label>
@@ -97,7 +101,6 @@ function StepOne({ onNext, onClose, locations }: any) {
         </div>
       </div>
 
-      {/* 3. COLORED CALENDAR */}
       <div className={`transition-all duration-300 ${!locationId ? "opacity-50 blur-sm pointer-events-none" : "opacity-100"}`}>
          <label className="block text-xs font-bold text-gray-500 mb-1 mt-4">3. Select Date</label>
          <div className="border rounded-xl p-4 bg-gray-50/50">
@@ -116,12 +119,12 @@ function StepOne({ onNext, onClose, locations }: any) {
               
               {days.map(d => {
                  const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
-                 const dateStr = dateObj.toISOString().split('T')[0];
-                 const status = dateStatuses[dateStr]; // "green", "red", "orange", "purple"
+                 // FIX: Use helper instead of toISOString()
+                 const dateStr = getLocalDateString(dateObj);
+                 const status = dateStatuses[dateStr]; 
                  const isSelected = selectedDate?.getDate() === d && selectedDate?.getMonth() === currentMonth.getMonth();
 
-                 // Define Colors
-                 let bgClass = "bg-transparent text-gray-400"; // Default (Loading/Unknown)
+                 let bgClass = "bg-transparent text-gray-400";
                  let isDisabled = false;
 
                  if (status === "red") {
@@ -151,7 +154,6 @@ function StepOne({ onNext, onClose, locations }: any) {
               })}
             </div>
             
-            {/* Legend */}
             <div className="flex gap-3 justify-center mt-4 text-[10px] font-bold text-gray-500">
                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-400"></div> Available</span>
                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-400"></div> Limited</span>
@@ -160,7 +162,6 @@ function StepOne({ onNext, onClose, locations }: any) {
             </div>
          </div>
 
-         {/* 4. TIME SLOTS (Only show if date selected) */}
          {selectedDate && (
              <div className="mt-4 animate-in slide-in-from-top-2 duration-300">
                 <label className="block text-xs font-bold text-gray-500 mb-2">4. Available Times</label>
@@ -205,7 +206,8 @@ function StepTwo({ data, onBack, onNext }: any) {
 
   useEffect(() => {
     const fetchTables = async () => {
-       const dateStr = data.date.toISOString().split('T')[0];
+       // FIX: Use helper
+       const dateStr = getLocalDateString(data.date);
        const res = await fetch(`/api/restaurant/availability?date=${dateStr}&time=${data.time}&guests=${data.guests}&locationId=${data.locationId}`);
        const json = await res.json();
        setTables(json); 
@@ -276,9 +278,11 @@ function StepSuccess({ data, onClose }: any) {
 
   useEffect(() => {
     const saveBooking = async () => {
+      // FIX: Use helper
+      const dateStr = getLocalDateString(data.date);
       const res = await fetch("/api/restaurant/create-booking-manual", {
         method: "POST",
-        body: JSON.stringify({...data, date: data.date.toISOString().split('T')[0]})
+        body: JSON.stringify({...data, date: dateStr})
       });
       if (res.ok) { setSaving(false); router.refresh(); } else { setError("Booking failed."); }
     };

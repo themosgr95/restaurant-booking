@@ -13,7 +13,6 @@ export async function GET(req: Request) {
 
     if (!locationId) return NextResponse.json([], { status: 400 });
 
-    // 1. Get Location Rules
     const location = await prisma.location.findUnique({
       where: { id: locationId },
       include: {
@@ -26,12 +25,9 @@ export async function GET(req: Request) {
       }
     });
 
-    if (!location || location.tables.length === 0) {
-      return NextResponse.json({ dates: {} });
-    }
+    if (!location || location.tables.length === 0) return NextResponse.json({ dates: {} });
 
-    // 2. Fetch Bookings
-    // We use a wide range to ensure we catch everything, regardless of timezone
+    // Use wide range for DB Query
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
@@ -42,44 +38,31 @@ export async function GET(req: Request) {
       }
     });
 
-    // 3. Calculate Status
     const daysInMonth = endDate.getDate();
     const dateStatus: Record<string, string> = {}; 
 
     for (let d = 1; d <= daysInMonth; d++) {
-      // FIX: Construct string MANUALLY to guarantee "2026-01-05" stays "2026-01-05"
+      // FIX: Manual String Construction to match Frontend
       const currentMonthStr = String(month + 1).padStart(2, '0');
       const currentDayStr = String(d).padStart(2, '0');
       const dayString = `${year}-${currentMonthStr}-${currentDayStr}`;
 
-      // Create a date at NOON (12:00) to safely check the day of the week
-      // This prevents "Midnight" shifting to the previous day
+      // FIX: Noon Date for DayOfWeek check
       const checkDate = new Date(year, month, d, 12, 0, 0);
-      const dayOfWeek = checkDate.getDay(); // 0=Sun, 1=Mon...
+      const dayOfWeek = checkDate.getDay(); 
 
-      // --- CHECK 1: IS IT CLOSED? ---
       const specialClosure = location.specialClosures.find(c => {
-         // Convert closure date to YYYY-MM-DD string to match
          const cDate = new Date(c.date);
-         const cString = cDate.toISOString().split('T')[0];
-         return cString === dayString;
+         return cDate.toISOString().split('T')[0] === dayString;
       });
-      
       const regularHours = location.openingHours.find(oh => oh.dayOfWeek === dayOfWeek);
 
-      // RED if closed by special event OR no regular hours found for this day of week
       if ((specialClosure && specialClosure.isClosed) || (!specialClosure && !regularHours)) {
         dateStatus[dayString] = "red";
         continue;
       }
 
-      // --- CHECK 2: CAPACITY ---
-      // Filter bookings by matching the day string exactly
-      const dayBookings = bookings.filter(b => {
-         const bString = b.date.toISOString().split('T')[0];
-         return bString === dayString;
-      });
-      
+      const dayBookings = bookings.filter(b => b.date.toISOString().split('T')[0] === dayString);
       const turnsPerTable = 5; 
       const totalCapacity = location.tables.length * turnsPerTable;
       const percentFull = dayBookings.length / totalCapacity;
@@ -91,7 +74,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ dates: dateStatus });
   } catch (error) {
-    console.error(error);
     return NextResponse.json({ dates: {} });
   }
 }
