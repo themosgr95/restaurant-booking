@@ -3,19 +3,18 @@ import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const dateStr = searchParams.get("date"); // "2026-01-05"
+  const dateStr = searchParams.get("date"); // "2026-01-31"
   const locationId = searchParams.get("locationId");
   const guests = parseInt(searchParams.get("guests") || "2");
 
   if (!dateStr || !locationId) return NextResponse.json([], { status: 400 });
 
-  // FIX: Parse "2026-01-05" manually to avoid timezone shift
+  // Parse Date Manually to avoid Timezone Shifts
   const [y, m, d] = dateStr.split('-').map(Number);
-  // Create date at NOON (12:00) to strictly identify the Day of Week
   const targetDate = new Date(y, m - 1, d, 12, 0, 0); 
   const dayOfWeek = targetDate.getDay(); 
 
-  // 1. Get Location & Opening Hours for THIS Day
+  // 1. Get Location & Hours
   const location = await prisma.location.findUnique({ 
     where: { id: locationId },
     include: {
@@ -25,7 +24,6 @@ export async function GET(req: Request) {
     }
   });
 
-  // If no hours found -> Closed
   if (!location || location.openingHours.length === 0) {
     return NextResponse.json([]); 
   }
@@ -33,7 +31,7 @@ export async function GET(req: Request) {
   const hours = location.openingHours[0]; 
   const duration = location.turnoverTime || 90;
 
-  // 2. Find Tables
+  // 2. Find Tables (ignoring CANCELLED bookings)
   const tables = await prisma.table.findMany({
     where: {
       locationId: locationId,
@@ -43,7 +41,9 @@ export async function GET(req: Request) {
       bookingTables: {
         where: {
           booking: {
-            date: { equals: new Date(dateStr) }
+            date: { equals: new Date(dateStr) },
+            // CRITICAL FIX: Ignore cancelled bookings so the slot becomes free
+            status: { not: "CANCELLED" } 
           }
         },
         include: { booking: true }
@@ -53,13 +53,13 @@ export async function GET(req: Request) {
 
   if (tables.length === 0) return NextResponse.json([]);
 
-  // 3. Generate Times
+  // 3. Generate Time Slots
   const [startH, startM] = hours.opensAt.split(':').map(Number);
   const [endH, endM] = hours.closesAt.split(':').map(Number);
   
   const timeSlots = [];
   
-  // Use a neutral date (Year 2000) to generate time strings without DST issues
+  // Use a neutral date (Year 2000) for generation
   let currentSlot = new Date(2000, 0, 1, startH, startM);
   const closeTime = new Date(2000, 0, 1, endH, endM);
 
@@ -69,8 +69,30 @@ export async function GET(req: Request) {
     currentSlot.setMinutes(currentSlot.getMinutes() + 30);
   }
 
-  // 4. Filter Available
-  const availableSlots = timeSlots.filter(slotTime => {
+  // 4. RULE: 30-Minute Buffer for "Today"
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  let finalSlots = timeSlots;
+
+  // Only apply buffer if the requested date is TODAY
+  if (dateStr === todayStr) {
+    // Calculate cutoff time (Now + 30 mins)
+    const cutoffTime = new Date(now.getTime() + 30 * 60000);
+    const cutoffH = cutoffTime.getHours();
+    const cutoffM = cutoffTime.getMinutes();
+
+    finalSlots = timeSlots.filter(slot => {
+       const [h, m] = slot.split(':').map(Number);
+       // Keep slot only if it is LATER than cutoff
+       if (h > cutoffH) return true;
+       if (h === cutoffH && m >= cutoffM) return true;
+       return false;
+    });
+  }
+
+  // 5. Filter for Availability (Check Collisions)
+  const availableSlots = finalSlots.filter(slotTime => {
     const slotStart = new Date(`${dateStr}T${slotTime}:00`);
     const slotEnd = new Date(slotStart.getTime() + duration * 60000);
 
