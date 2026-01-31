@@ -1,74 +1,73 @@
-import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const date = searchParams.get("date");
-  const time = searchParams.get("time");
-  const guests = parseInt(searchParams.get("guests") || "2");
+  const dateStr = searchParams.get("date"); // YYYY-MM-DD
+  const timeStr = searchParams.get("time"); // HH:MM
   const locationId = searchParams.get("locationId");
+  const guests = parseInt(searchParams.get("guests") || "2");
 
-  if (!date || !time || !locationId) {
+  if (!dateStr || !timeStr || !locationId) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // 1. Get Location Info
-  const location = await prisma.location.findUnique({
-    where: { id: locationId },
-  });
-
-  if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
-
-  // 2. Define Slot
-  const duration = location.turnoverTime || 90; 
-  const bookingStart = new Date(`${date}T${time}:00`);
-  const bookingEnd = new Date(bookingStart.getTime() + duration * 60000);
-
-  // 3. Find Tables
-  const tables = await prisma.table.findMany({
-    where: {
-      locationId: locationId,
-      capacity: { gte: guests }
-    },
-    include: {
-      bookingTables: {
-        where: {
-          booking: {
-            date: { equals: new Date(date) }
-          }
-        },
-        include: { booking: true }
-      }
-    }
-  });
-
-  // 4. Check Availability & Return Tables
-  const availableTables = tables.map(table => {
-    const isOccupied = table.bookingTables.some(bt => {
-      const bStart = new Date(`${date}T${bt.booking.time}:00`);
-      const bEnd = new Date(bStart.getTime() + duration * 60000); 
-      return (bookingStart < bEnd && bookingEnd > bStart);
+  try {
+    // 1. Get Location Settings & All Tables
+    const location = await prisma.location.findUnique({
+      where: { id: locationId },
+      include: { tables: true }
     });
 
-    if (isOccupied) return null;
+    if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
 
-    const futureBookings = table.bookingTables
-      .map(bt => new Date(`${date}T${bt.booking.time}:00`))
-      .filter(d => d > bookingStart)
-      .sort((a, b) => a.getTime() - b.getTime());
+    // 2. Define the Requested Time Slot
+    const turnoverMinutes = location.turnoverTime || 90;
+    const requestedStart = new Date(`${dateStr}T${timeStr}:00`);
+    const requestedEnd = new Date(requestedStart.getTime() + turnoverMinutes * 60000);
 
-    const nextBookingTime = futureBookings.length > 0 
-      ? futureBookings[0].toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : null;
+    // 3. Get Bookings for this Location on this Date
+    // We fetch all bookings for the day to check for overlaps in memory (faster/easier)
+    const dayStart = new Date(`${dateStr}T00:00:00`);
+    const dayEnd = new Date(`${dateStr}T23:59:59`);
 
-    return {
-      id: table.id,
-      name: table.name,
-      capacity: table.capacity,
-      locationId: table.locationId,
-      nextBookingTime
-    };
-  }).filter(Boolean);
+    const existingBookings = await prisma.booking.findMany({
+      where: {
+        locationId: locationId,
+        date: {
+          gte: dayStart,
+          lte: dayEnd
+        },
+        status: { not: "CANCELLED" }
+      }
+    });
 
-  return NextResponse.json(availableTables);
+    // 4. Find Available Tables
+    const availableTables = location.tables.filter((table) => {
+      // Filter by capacity first
+      if (table.capacity < guests) return false;
+
+      // Check for conflicts
+      const isTaken = existingBookings.some((booking) => {
+        if (booking.tableId !== table.id) return false; // Different table, no conflict
+
+        const bookingStart = new Date(booking.date);
+        const bookingEnd = new Date(bookingStart.getTime() + turnoverMinutes * 60000);
+
+        // Check for overlap: (StartA < EndB) and (EndA > StartB)
+        return (requestedStart < bookingEnd && requestedEnd > bookingStart);
+      });
+
+      return !isTaken;
+    });
+
+    return NextResponse.json({ 
+      available: availableTables.length > 0,
+      tables: availableTables 
+    });
+
+  } catch (error) {
+    console.error("Availability Error:", error);
+    return NextResponse.json({ error: "Server Error" }, { status: 500 });
+  }
 }

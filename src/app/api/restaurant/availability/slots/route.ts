@@ -1,104 +1,60 @@
-import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const dateStr = searchParams.get("date");
   const locationId = searchParams.get("locationId");
-  const guests = parseInt(searchParams.get("guests") || "2");
 
-  if (!dateStr || !locationId) return NextResponse.json([], { status: 400 });
+  if (!dateStr || !locationId) return NextResponse.json([]);
 
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const targetDate = new Date(Date.UTC(y, m - 1, d)); 
-  const dayOfWeek = targetDate.getUTCDay();
+  const date = new Date(dateStr);
+  const dayOfWeek = date.getDay(); // 0 = Sunday
 
-  // 1. CHECK EXCEPTIONS
-  const exception = await prisma.specialClosure.findFirst({
-    where: { locationId, date: targetDate }
-  });
-
-  if (exception && exception.isClosed) return NextResponse.json([]); 
-
-  let openTime = "";
-  let closeTime = "";
-
-  if (exception && !exception.isClosed && exception.opensAt && exception.closesAt) {
-     openTime = exception.opensAt;
-     closeTime = exception.closesAt;
-  } else {
-     const location = await prisma.location.findUnique({ 
-        where: { id: locationId },
-        include: { openingHours: { where: { dayOfWeek: dayOfWeek } } }
-      });
-      if (!location || location.openingHours.length === 0) return NextResponse.json([]);
-      openTime = location.openingHours[0].opensAt;
-      closeTime = location.openingHours[0].closesAt;
-  }
-
-  // 2. FETCH TABLES (IGNORE CANCELLED AND COMPLETED)
-  const duration = 90;
-  const tables = await prisma.table.findMany({
-    where: { locationId, capacity: { gte: guests } },
-    include: {
-      bookingTables: {
-        where: {
-          booking: {
-            date: targetDate,
-            // CRITICAL FIX: Also ignore COMPLETED so the table becomes free
-            status: { notIn: ["CANCELLED", "COMPLETED"] }
-          }
-        },
-        include: { booking: true }
-      }
+  // 1. Check for Special Closures
+  const specialClosure = await prisma.specialClosure.findFirst({
+    where: {
+      locationId,
+      date: date
     }
   });
 
-  if (tables.length === 0) return NextResponse.json([]);
-
-  // 3. GENERATE SLOTS
-  const [startH, startM] = openTime.split(':').map(Number);
-  const [endH, endM] = closeTime.split(':').map(Number);
-  const timeSlots = [];
-  let currentSlot = new Date(2000, 0, 1, startH, startM);
-  const closingTime = new Date(2000, 0, 1, endH, endM);
-
-  while (currentSlot < closingTime) {
-    const timeString = currentSlot.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    timeSlots.push(timeString);
-    currentSlot.setMinutes(currentSlot.getMinutes() + 30);
+  // FIX: If a special closure record exists, we assume it's closed.
+  // We removed the ".isClosed" check entirely.
+  if (specialClosure) {
+    return NextResponse.json([]); 
   }
 
-  // 4. "TODAY" BUFFER
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  if (dateStr === todayStr) {
-    const cutoffTime = new Date(now.getTime() + 30 * 60000);
-    const cutoffH = cutoffTime.getHours();
-    const cutoffM = cutoffTime.getMinutes();
-    const filtered = [];
-    for(const t of timeSlots) {
-       const [h, m] = t.split(':').map(Number);
-       if (h > cutoffH || (h === cutoffH && m >= cutoffM)) filtered.push(t);
+  // 2. Get Standard Opening Hours
+  const hours = await prisma.openingHour.findFirst({
+    where: {
+      locationId,
+      dayOfWeek
     }
-    timeSlots.length = 0;
-    timeSlots.push(...filtered);
-  }
+  });
 
-  // 5. CHECK COLLISIONS
-  const availableSlots = timeSlots.filter(slotTime => {
-    const slotStart = new Date(`${dateStr}T${slotTime}:00`);
-    const slotEnd = new Date(slotStart.getTime() + duration * 60000);
+  if (!hours) return NextResponse.json([]); // Closed today
 
-    return tables.some(table => {
-      const isBlocked = table.bookingTables.some(bt => {
-        const bStart = new Date(`${dateStr}T${bt.booking.time}:00`);
-        const bEnd = new Date(bStart.getTime() + duration * 60000); 
-        return (slotStart < bEnd && slotEnd > bStart);
-      });
-      return !isBlocked;
+  // 3. Generate Time Slots
+  const slots = [];
+  let [startHour, startMin] = hours.openTime.split(":").map(Number);
+  let [endHour, endMin] = hours.closeTime.split(":").map(Number);
+
+  let current = new Date(date);
+  current.setHours(startHour, startMin, 0, 0);
+
+  const end = new Date(date);
+  end.setHours(endHour, endMin, 0, 0);
+
+  // Create slots every 30 minutes
+  while (current < end) {
+    const timeString = current.toLocaleTimeString("en-GB", { 
+      hour: "2-digit", 
+      minute: "2-digit" 
     });
-  });
+    slots.push(timeString);
+    current.setMinutes(current.getMinutes() + 30);
+  }
 
-  return NextResponse.json(availableSlots);
+  return NextResponse.json(slots);
 }

@@ -1,45 +1,35 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/options";
-import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const body = await req.json();
-    const { table, date, time, guests, name, email, phone, notes } = body;
+    const { name, email, phone, date, time, guests, notes, tableId, locationId } = body;
 
-    // 1. Fetch the Table to get the correct Restaurant ID
-    // (We cannot just use locationId as restaurantId)
-    const tableData = await prisma.table.findUnique({
-      where: { id: table.id },
-      include: { location: true } // This gives us location.restaurantId
-    });
+    // 1. Combine Date and Time into a single DateTime object
+    // "date" comes as "2025-08-20" and "time" as "19:30"
+    const combinedDate = new Date(`${date}T${time}:00`);
 
-    if (!tableData) return NextResponse.json({ error: "Table not found" }, { status: 404 });
-
-    // 2. Create Booking linked to the correct Restaurant
+    // 2. Create the Booking
+    // We removed the 'time' field because it's now inside 'combinedDate'
     const booking = await prisma.booking.create({
       data: {
-        date: new Date(date),
-        time,
+        date: combinedDate,       // <--- The Fix: Use the combined DateTime
         guests: parseInt(guests),
         customerName: name,
         customerEmail: email,
         customerPhone: phone,
-        notes,
-        restaurantId: tableData.location.restaurantId, // FIX: Use the actual Restaurant ID
-        bookingTables: {
-          create: { tableId: table.id }
-        }
+        notes: notes,
+        status: "CONFIRMED",
+        locationId: locationId,
+        tableId: tableId || null, // Optional link to a specific table
       }
     });
 
-    return NextResponse.json(booking);
+    return NextResponse.json({ success: true, booking });
+
   } catch (error) {
-    console.error("Booking Error:", error);
+    console.error("Manual Booking Error:", error);
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
   }
 }

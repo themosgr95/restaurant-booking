@@ -1,60 +1,73 @@
-import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const locationId = searchParams.get("locationId");
-  const month = parseInt(searchParams.get("month") || new Date().getMonth().toString());
   const year = parseInt(searchParams.get("year") || new Date().getFullYear().toString());
-  
-  const startDate = new Date(Date.UTC(year, month, 1));
-  const endDate = new Date(Date.UTC(year, month + 1, 0));
+  const month = parseInt(searchParams.get("month") || new Date().getMonth().toString()); // 0-indexed
 
-  // 1. Fetch Bookings
-  const bookings = await prisma.booking.groupBy({
-    by: ['date'],
-    where: {
-      date: { gte: startDate, lte: endDate },
-      status: { not: "CANCELLED" },
-      ...(locationId && locationId !== "all" ? {
-         bookingTables: { some: { table: { locationId } } }
-      } : {})
-    },
-    _count: { id: true }
-  });
+  if (!locationId) return NextResponse.json({});
 
-  // 2. Fetch Exceptions (Both Closed AND Special Openings)
-  const exceptions = await prisma.specialClosure.findMany({
-    where: {
-      date: { gte: startDate, lte: endDate }
+  // 1. Define Date Range
+  const startDate = new Date(year, month, 1);
+  const endDate = new Date(year, month + 1, 0);
+
+  try {
+    // 2. Get all bookings for the month
+    const bookings = await prisma.booking.findMany({
+      where: {
+        locationId,
+        date: {
+          gte: startDate,
+          lte: endDate
+        },
+        status: { not: "CANCELLED" }
+      }
+    });
+
+    // 3. Get Special Closures
+    const specialClosures = await prisma.specialClosure.findMany({
+      where: {
+        locationId,
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
+      }
+    });
+
+    // 4. Aggregate Data
+    const data: Record<string, { count: number; isClosed: boolean }> = {};
+
+    // Initialize all days
+    for (let d = 1; d <= endDate.getDate(); d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      data[dateStr] = { count: 0, isClosed: false };
     }
-  });
 
-  const data: Record<string, { bookings: number, isClosed: boolean }> = {};
+    // Fill Counts
+    bookings.forEach(b => {
+      const dateStr = b.date.toISOString().split('T')[0];
+      if (data[dateStr]) {
+        data[dateStr].count += b.guests;
+      }
+    });
 
-  // Fill Bookings
-  bookings.forEach(b => {
-    const d = new Date(b.date);
-    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    if (!data[dateStr]) data[dateStr] = { bookings: 0, isClosed: false };
-    data[dateStr].bookings = b._count.id;
-  });
+    // Fill Closures
+    specialClosures.forEach(c => {
+      const dateStr = c.date.toISOString().split('T')[0];
+      if (data[dateStr]) {
+        // FIX: Remove 'if (c.isClosed)' check. 
+        // If the record exists, it is closed.
+        data[dateStr].isClosed = true; 
+      }
+    });
 
-  // Apply Exceptions
-  exceptions.forEach(c => {
-    const d = new Date(c.date);
-    const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    
-    if (!data[dateStr]) data[dateStr] = { bookings: 0, isClosed: false };
-    
-    // If exception says closed -> Mark Closed
-    // If exception says Open (Special Hours) -> Ensure NOT Closed
-    if (c.isClosed) {
-      data[dateStr].isClosed = true;
-    } else {
-      data[dateStr].isClosed = false; // Force open
-    }
-  });
+    return NextResponse.json(data);
 
-  return NextResponse.json(data);
+  } catch (error) {
+    console.error("Counts Error:", error);
+    return NextResponse.json({}, { status: 500 });
+  }
 }

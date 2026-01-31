@@ -1,85 +1,71 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/options";
 import { redirect } from "next/navigation";
+import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
-import DashboardClient from "./dashboard-client";
+import TimelineView from "./timeline-view";
 
-// FIX: Accept searchParams as a Promise (Next.js 15 Standard)
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const session = await getServerSession(authOptions);
+  
+  // 1. Await Params (Next.js 15 Requirement)
+  const params = await searchParams;
+
   if (!session) redirect("/auth/signin");
 
+  // 2. FIX: Fetch "Location" (not Restaurant)
   const membership = await prisma.membership.findFirst({
     where: { user: { email: session.user?.email! } },
-    include: { restaurant: true }
+    include: { location: true }
   });
 
   if (!membership) redirect("/setup-admin");
 
-  const restaurantId = membership.restaurant.id;
-  const locations = await prisma.location.findMany({
-    where: { restaurantId },
-    include: { tables: true } 
-  });
+  // 3. Get Date
+  const dateStr = params.date || new Date().toISOString().split('T')[0];
+  const dateObj = new Date(dateStr);
+  const nextDate = new Date(dateObj);
+  nextDate.setDate(dateObj.getDate() + 1);
 
-  // 1. DETERMINE DATE
-  // Await searchParams before using
-  const params = await searchParams;
-  const dateParam = params?.date; 
-  
-  let targetDate = new Date(); // Default to Today
-  if (dateParam) {
-    // Parse YYYY-MM-DD safely
-    const [y, m, d] = dateParam.split('-').map(Number);
-    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-      targetDate = new Date(y, m - 1, d);
-    }
-  }
-
-  // Set to Midnight for DB Query
-  targetDate.setHours(0, 0, 0, 0);
-  const nextDay = new Date(targetDate);
-  nextDay.setDate(nextDay.getDate() + 1);
-
-  // 2. FETCH BOOKINGS FOR TARGET DATE
+  // 4. Fetch Bookings for this Location
   const bookings = await prisma.booking.findMany({
     where: {
-      restaurantId,
+      locationId: membership.locationId,
       date: {
-        gte: targetDate,
-        lt: nextDay
+        gte: dateObj,
+        lt: nextDate
       },
+      status: { not: "CANCELLED" }
     },
     include: {
-      bookingTables: {
-        include: { table: true }
-      }
+      table: true // Include table info
     },
-    orderBy: { time: 'asc' }
+    orderBy: { date: 'asc' }
   });
 
-  // 3. Transform
+  // 5. Format Bookings for the View
+  // We map the database fields to what the UI expects
   const formattedBookings = bookings.map(b => ({
     id: b.id,
     customerName: b.customerName,
     customerEmail: b.customerEmail,
     customerPhone: b.customerPhone,
-    date: b.date.toISOString(),
-    time: b.time,
     guests: b.guests,
-    notes: b.notes,
     status: b.status,
-    tables: b.bookingTables.map(bt => bt.table),
+    time: b.date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+    tables: b.table ? [b.table] : [], // UI expects an array of tables
+    notes: b.notes
   }));
 
-  // Pass the CURRENT DATE string to the client so it knows where it is
-  const currentDateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+  // 6. Get All Locations (if user manages multiple, though simplified to 1 for now)
+  const locations = [membership.location];
 
   return (
-    <DashboardClient 
-       locations={locations} 
-       bookings={formattedBookings} 
-       currentDate={currentDateStr} // <--- Passing this is key!
-    />
+    <div className="p-6">
+      <TimelineView 
+        locations={locations}
+        bookings={formattedBookings}
+        dateStr={dateStr}
+      />
+    </div>
   );
 }

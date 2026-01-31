@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Filter, Users, Calendar as CalendarIcon, RotateCcw, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, CheckCircle, Bell, Search, Users, Calendar as CalendarIcon, RotateCcw, LogOut } from "lucide-react";
 import StaffBookingWizard from "./booking-wizard";
 import BookingDetailsModal from "./booking-details-modal"; 
 import TimelineCalendar from "./timeline-calendar"; 
@@ -66,15 +66,17 @@ export default function TimelineView({ locations, bookings, dateStr }: { locatio
 
   const totalGuests = filteredBookings.reduce((sum: number, b: any) => b.status !== "CANCELLED" ? sum + b.guests : sum, 0);
 
-  // Audio Logic
-  const [prevBookingCount, setPrevBookingCount] = useState(bookings.length);
+  // --- FIX APPLIED HERE: Audio Logic using useRef instead of useState ---
+  const prevBookingCount = useRef(bookings.length);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (bookings.length > prevBookingCount) {
+    // Compare current length with the ref's current value
+    if (bookings.length > prevBookingCount.current) {
       if (audioRef.current) audioRef.current.play().catch(e => console.log("Audio blocked"));
     }
-    setPrevBookingCount(bookings.length);
+    // Update the ref (does not trigger re-render)
+    prevBookingCount.current = bookings.length;
   }, [bookings.length]);
 
   return (

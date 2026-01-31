@@ -1,80 +1,65 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/options";
-import { prisma } from "@/lib/db/prisma";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db/prisma";
 
-export async function POST(
-  req: Request,
-  props: { params: Promise<{ locationId: string }> }
-) {
+// Helper type for the params
+type RouteContext = {
+  params: Promise<{ locationId: string }>;
+};
+
+export async function POST(req: Request, context: RouteContext) {
   try {
-    const params = await props.params;
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { locationId } = await context.params;
+    const { startDate, endDate, reason } = await req.json();
 
-    const body = await req.json();
-    const { startDate, endDate, isClosed, opensAt, closesAt, note } = body;
-
-    // Helper: Loop through dates
     const start = new Date(startDate);
-    const end = endDate ? new Date(endDate) : new Date(startDate);
+    const end = new Date(endDate);
     
-    // Safety: Prevent massive loops (limit to 365 days max)
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-    if (diffDays > 365) return NextResponse.json({ error: "Range too large" }, { status: 400 });
-
-    const operations = [];
-
-    // Loop from start to end date
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      // Create a specific date object for this iteration
-      const currentIso = d.toISOString();
-      
-      operations.push(
-        prisma.specialClosure.upsert({
-          where: {
-            locationId_date: {
-              locationId: params.locationId,
-              date: currentIso
-            }
-          },
-          update: { isClosed, opensAt, closesAt, note },
-          create: {
-            locationId: params.locationId,
-            date: currentIso,
-            isClosed,
-            opensAt,
-            closesAt,
-            note
-          }
-        })
-      );
+    // Validate dates
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return NextResponse.json({ error: "Invalid dates" }, { status: 400 });
     }
 
-    // Execute all database operations
-    await prisma.$transaction(operations);
+    // Loop through each day in the range
+    const promises = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const currentDate = new Date(d); // Copy date
+      
+      // Check if closure exists for this specific day
+      const existing = await prisma.specialClosure.findFirst({
+        where: {
+          locationId: locationId,
+          date: currentDate
+        }
+      });
+
+      if (existing) {
+        // UPDATE existing
+        promises.push(
+          prisma.specialClosure.update({
+            where: { id: existing.id },
+            data: { reason }
+          })
+        );
+      } else {
+        // CREATE new
+        promises.push(
+          prisma.specialClosure.create({
+            data: {
+              locationId: locationId,
+              date: currentDate,
+              reason: reason
+            }
+          })
+        );
+      }
+    }
+
+    await Promise.all(promises);
 
     return NextResponse.json({ success: true });
+
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "Failed to create closure" }, { status: 500 });
-  }
-}
-
-// DELETE remains the same
-export async function DELETE(req: Request) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "Missing ID" }, { status: 400 });
-
-    await prisma.specialClosure.delete({ where: { id } });
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+    console.error("Closure Error:", error);
+    return NextResponse.json({ error: "Server Error" }, { status: 500 });
   }
 }

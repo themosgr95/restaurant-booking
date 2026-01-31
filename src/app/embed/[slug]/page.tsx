@@ -1,50 +1,44 @@
 import { prisma } from "@/lib/db/prisma";
-import { notFound } from "next/navigation";
-import BookingClient from "../../book/[slug]/booking-client"; // Reusing your existing client!
 
-export default async function EmbedPage({ params }: { params: { slug: string } }) {
-  // 1. Fetch Restaurant by Slug
-  const restaurant = await prisma.restaurant.findUnique({
-    where: { slug: params.slug },
-    include: { 
-      locations: { 
-        orderBy: { turnoverTime: 'desc' } 
-      } 
+// 1. Define Props (Params are Promises in Next.js 15)
+type Props = {
+  params: Promise<{ slug: string }>;
+};
+
+export default async function EmbedPage(props: Props) {
+  // 2. Await the params
+  const { slug } = await props.params;
+
+  // 3. Fetch "Location" instead of "Restaurant"
+  const location = await prisma.location.findUnique({
+    where: { slug },
+    include: {
+      openingHours: true
     }
   });
 
-  if (!restaurant) notFound();
+  if (!location) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <p className="text-gray-500 font-bold">Location not found</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-2">
-      {/* We wrap the client in a container that fits well in an iframe.
-         The 'bg-white' ensures it pops out against the host site's background.
-      */}
-      <div className="w-full max-w-md bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        
-        {/* Minimal Header for the Widget */}
-        <div className="bg-orange-600 p-4 text-white flex justify-between items-center">
-          <h1 className="font-bold text-lg truncate">{restaurant.name}</h1>
-          <div className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider">
-            Ding!
-          </div>
-        </div>
+    <div className="min-h-screen bg-white p-4">
+      <div className="text-center mb-6">
+        <h1 className="text-xl font-black text-gray-900">{location.name}</h1>
+        {location.description && (
+          <p className="text-sm text-gray-500 mt-1">{location.description}</p>
+        )}
+      </div>
 
-        <div className="p-4">
-           {/* Reuse the logic, but maybe we hide the 'Step 1' heavy text in the client via CSS or props later if needed */}
-           <BookingClient 
-              restaurantId={restaurant.id} 
-              locations={restaurant.locations} 
-           />
-        </div>
-
-        {/* Footer Credit */}
-        <div className="bg-gray-50 p-2 text-center border-t border-gray-100">
-           <a href="https://your-app-url.com" target="_blank" className="text-[10px] text-gray-400 font-medium hover:text-orange-500 transition-colors flex items-center justify-center gap-1">
-             <span>Powered by</span> 
-             <span className="font-black italic">Ding!</span>
-           </a>
-        </div>
+      <div className="bg-orange-50 border border-orange-100 rounded-xl p-6 text-center">
+        <p className="font-bold text-orange-800 mb-1">📅 Booking Widget</p>
+        <p className="text-xs text-orange-600">
+          (This simplified view is ready for embedding on other websites)
+        </p>
       </div>
     </div>
   );
