@@ -1,175 +1,442 @@
 "use client";
 
-import { useState } from "react";
-import { Save, Plus, Trash2, Calendar } from "lucide-react";
+import * as React from "react";
+import { Button, Input } from "@/components/ui-primitives";
 
-// Mock data - In a real app, fetch this from your API
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+type Location = {
+  id: string;
+  name: string;
+  turnoverMinutes: number | null;
+};
 
-export default function HoursSettingsPage() {
-  // Weekly Schedule State
-  const [schedule, setSchedule] = useState(
-    DAYS.map((day) => ({
-      day,
-      isOpen: true,
-      openTime: "11:00",
-      closeTime: "22:00",
-    }))
+type Weekday =
+  | "MONDAY"
+  | "TUESDAY"
+  | "WEDNESDAY"
+  | "THURSDAY"
+  | "FRIDAY"
+  | "SATURDAY"
+  | "SUNDAY";
+
+type WeeklyHour = {
+  day: Weekday;
+  isOpen: boolean;
+  openTime: string; // "11:00"
+  closeTime: string; // "22:00"
+};
+
+type SpecialRule = {
+  id: string;
+  type: "CLOSED" | "SPECIAL_HOURS";
+  startDate: string; // "2026-02-01"
+  endDate: string;   // "2026-02-15"
+  openTime?: string; // only for SPECIAL_HOURS
+  closeTime?: string;
+  note?: string | null;
+};
+
+const DAYS: { day: Weekday; label: string }[] = [
+  { day: "MONDAY", label: "Monday" },
+  { day: "TUESDAY", label: "Tuesday" },
+  { day: "WEDNESDAY", label: "Wednesday" },
+  { day: "THURSDAY", label: "Thursday" },
+  { day: "FRIDAY", label: "Friday" },
+  { day: "SATURDAY", label: "Saturday" },
+  { day: "SUNDAY", label: "Sunday" },
+];
+
+function defaultWeekly(): WeeklyHour[] {
+  return DAYS.map(({ day }) => ({
+    day,
+    isOpen: true,
+    openTime: "11:00",
+    closeTime: "22:00",
+  }));
+}
+
+export default function HoursPage() {
+  const [locations, setLocations] = React.useState<Location[]>([]);
+  const [locationId, setLocationId] = React.useState<string>("");
+
+  const [weekly, setWeekly] = React.useState<WeeklyHour[]>(defaultWeekly());
+  const [rules, setRules] = React.useState<SpecialRule[]>([]);
+
+  const [loading, setLoading] = React.useState(false);
+  const [savingWeekly, setSavingWeekly] = React.useState(false);
+  const [savingRule, setSavingRule] = React.useState(false);
+
+  // Add rule form
+  const [ruleType, setRuleType] = React.useState<"CLOSED" | "SPECIAL_HOURS">(
+    "CLOSED"
   );
+  const [startDate, setStartDate] = React.useState("");
+  const [endDate, setEndDate] = React.useState("");
+  const [openTime, setOpenTime] = React.useState("11:00");
+  const [closeTime, setCloseTime] = React.useState("22:00");
+  const [note, setNote] = React.useState("");
 
-  // Special Dates State
-  const [specialDates, setSpecialDates] = useState([
-    { id: 1, date: "2024-12-25", name: "Christmas", isOpen: false, openTime: "", closeTime: "" },
-  ]);
+  const selectedLocation = locations.find((l) => l.id === locationId) || null;
 
-  const toggleDay = (index: number) => {
-    const newSchedule = [...schedule];
-    newSchedule[index].isOpen = !newSchedule[index].isOpen;
-    setSchedule(newSchedule);
-  };
+  async function loadLocations() {
+    const res = await fetch("/api/restaurant/locations");
+    if (!res.ok) throw new Error("Failed to load locations");
+    const data = await res.json();
+    setLocations(data.locations || data || []);
+    const firstId = (data.locations || data || [])[0]?.id || "";
+    setLocationId((prev) => prev || firstId);
+  }
 
-  const updateTime = (index: number, field: "openTime" | "closeTime", value: string) => {
-    const newSchedule = [...schedule];
-    newSchedule[index] = { ...newSchedule[index], [field]: value };
-    setSchedule(newSchedule);
-  };
+  async function loadForLocation(id: string) {
+    if (!id) return;
+    setLoading(true);
+    try {
+      const [hoursRes, rulesRes] = await Promise.all([
+        fetch(`/api/restaurant/locations/${id}/hours`),
+        fetch(`/api/restaurant/locations/${id}/closures`),
+      ]);
 
-  const addSpecialDate = () => {
-    setSpecialDates([
-      ...specialDates,
-      { id: Date.now(), date: "", name: "New Event", isOpen: true, openTime: "12:00", closeTime: "23:00" },
-    ]);
-  };
+      // weekly hours
+      if (hoursRes.ok) {
+        const h = await hoursRes.json();
+        setWeekly(h.weekly || h || defaultWeekly());
+      } else {
+        setWeekly(defaultWeekly());
+      }
 
-  const removeSpecialDate = (id: number) => {
-    setSpecialDates(specialDates.filter((d) => d.id !== id));
-  };
+      // special rules (closures + special hours)
+      if (rulesRes.ok) {
+        const r = await rulesRes.json();
+        setRules(r.rules || r || []);
+      } else {
+        setRules([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  React.useEffect(() => {
+    loadLocations().catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    loadForLocation(locationId).catch(() => {});
+  }, [locationId]);
+
+  function updateDay(day: Weekday, patch: Partial<WeeklyHour>) {
+    setWeekly((prev) =>
+      prev.map((d) => (d.day === day ? { ...d, ...patch } : d))
+    );
+  }
+
+  async function saveWeekly() {
+    if (!locationId) return;
+    setSavingWeekly(true);
+    try {
+      const res = await fetch(`/api/restaurant/locations/${locationId}/hours`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weekly }),
+      });
+      if (!res.ok) throw new Error("Failed to save weekly hours");
+    } finally {
+      setSavingWeekly(false);
+    }
+  }
+
+  async function addRule() {
+    if (!locationId) return;
+    if (!startDate) return alert("Pick a start date");
+    if (!endDate) return alert("Pick an end date");
+
+    if (ruleType === "SPECIAL_HOURS") {
+      if (!openTime || !closeTime) return alert("Pick times");
+    }
+
+    setSavingRule(true);
+    try {
+      const payload =
+        ruleType === "CLOSED"
+          ? { type: "CLOSED", startDate, endDate, note: note || null }
+          : {
+              type: "SPECIAL_HOURS",
+              startDate,
+              endDate,
+              openTime,
+              closeTime,
+              note: note || null,
+            };
+
+      const res = await fetch(
+        `/api/restaurant/locations/${locationId}/closures`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!res.ok) throw new Error("Failed to add rule");
+
+      // reload rules
+      await loadForLocation(locationId);
+
+      // reset form
+      setStartDate("");
+      setEndDate("");
+      setNote("");
+    } finally {
+      setSavingRule(false);
+    }
+  }
+
+  async function deleteRule(ruleId: string) {
+    if (!locationId) return;
+    const ok = confirm("Delete this rule?");
+    if (!ok) return;
+
+    const res = await fetch(
+      `/api/restaurant/locations/${locationId}/closures?ruleId=${encodeURIComponent(
+        ruleId
+      )}`,
+      { method: "DELETE" }
+    );
+
+    if (!res.ok) return alert("Failed to delete");
+    await loadForLocation(locationId);
+  }
 
   return (
-    <div className="space-y-8">
-      
-      {/* --- Weekly Schedule Section --- */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-          🕒 Weekly Schedule
-        </h2>
-        <div className="space-y-4">
-          {schedule.map((day, index) => (
-            <div key={day.day} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
-              
-              {/* Day Name & Toggle */}
-              <div className="flex items-center gap-4 mb-3 sm:mb-0 w-40">
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    className="sr-only peer"
-                    checked={day.isOpen}
-                    onChange={() => toggleDay(index)}
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
-                </label>
-                <span className={`font-medium ${day.isOpen ? "text-gray-900" : "text-gray-400"}`}>
-                  {day.day}
-                </span>
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Hours</h1>
+          <p className="text-sm text-muted-foreground">
+            Weekly schedule + special hours and closures per location.
+          </p>
+        </div>
+      </div>
+
+      {/* Location selector */}
+      <div className="mb-6 rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">Location</div>
+            <div className="text-xs text-muted-foreground">
+              Pick the area/store you’re editing (Bar, Garden, etc.)
+            </div>
+          </div>
+
+          <select
+            className="h-10 w-full rounded-xl border px-3 text-sm sm:w-[320px]"
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+          >
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedLocation && (
+          <div className="mt-4 text-xs text-muted-foreground">
+            Turnover for this location:{" "}
+            <span className="font-medium text-black">
+              {selectedLocation.turnoverMinutes ?? "—"} min
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Weekly schedule */}
+      <div className="mb-6 rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold">Weekly schedule</div>
+            <div className="text-xs text-muted-foreground">
+              These are the normal opening hours.
+            </div>
+          </div>
+
+          <Button onClick={saveWeekly} disabled={savingWeekly || loading}>
+            {savingWeekly ? "Saving..." : "Save weekly hours"}
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          {weekly.map((d) => (
+            <div
+              key={d.day}
+              className="flex flex-col gap-3 rounded-2xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5"
+                  checked={d.isOpen}
+                  onChange={(e) =>
+                    updateDay(d.day, { isOpen: e.target.checked })
+                  }
+                />
+                <div className="text-sm font-medium">
+                  {DAYS.find((x) => x.day === d.day)?.label ?? d.day}
+                </div>
+                {!d.isOpen && (
+                  <span className="text-xs text-muted-foreground">(Closed)</span>
+                )}
               </div>
 
-              {/* Time Inputs */}
-              {day.isOpen ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={day.openTime}
-                    onChange={(e) => updateTime(index, "openTime", e.target.value)}
-                    className="p-2 border border-gray-300 rounded-md text-sm"
-                  />
-                  <span className="text-gray-400">-</span>
-                  <input
-                    type="time"
-                    value={day.closeTime}
-                    onChange={(e) => updateTime(index, "closeTime", e.target.value)}
-                    className="p-2 border border-gray-300 rounded-md text-sm"
-                  />
-                </div>
-              ) : (
-                <span className="text-gray-400 italic text-sm px-2">Closed all day</span>
-              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  type="time"
+                  value={d.openTime}
+                  onChange={(e: any) =>
+                    updateDay(d.day, { openTime: e.target.value })
+                  }
+                  disabled={!d.isOpen}
+                />
+                <span className="text-sm text-muted-foreground">–</span>
+                <Input
+                  type="time"
+                  value={d.closeTime}
+                  onChange={(e: any) =>
+                    updateDay(d.day, { closeTime: e.target.value })
+                  }
+                  disabled={!d.isOpen}
+                />
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* --- Special Dates Section --- */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            📅 Special Days
-            </h2>
-            <button onClick={addSpecialDate} className="text-sm flex items-center gap-1 text-blue-600 hover:text-blue-800 font-semibold">
-                <Plus size={16} /> Add Date
-            </button>
+      {/* Special hours / closures */}
+      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="mb-4">
+          <div className="text-lg font-semibold">Special hours & closures</div>
+          <div className="text-xs text-muted-foreground">
+            Override the weekly schedule for holidays, events, vacations, etc.
+          </div>
         </div>
 
-        {specialDates.length === 0 ? (
-            <p className="text-gray-400 text-sm">No special hours added.</p>
-        ) : (
-            <div className="space-y-3">
-                {specialDates.map((special) => (
-                    <div key={special.id} className="flex flex-wrap items-center gap-3 p-3 border border-blue-100 bg-blue-50/50 rounded-lg">
-                        <Calendar size={16} className="text-blue-500" />
-                        <input 
-                            type="date" 
-                            className="p-1.5 border border-gray-300 rounded text-sm bg-white"
-                            value={special.date}
-                            onChange={(e) => {
-                                const newDates = specialDates.map(d => d.id === special.id ? {...d, date: e.target.value} : d);
-                                setSpecialDates(newDates);
-                            }}
-                        />
-                        <input 
-                            type="text" 
-                            placeholder="Event Name (e.g. Holiday)" 
-                            className="p-1.5 border border-gray-300 rounded text-sm bg-white flex-1 min-w-[120px]"
-                            value={special.name}
-                             onChange={(e) => {
-                                const newDates = specialDates.map(d => d.id === special.id ? {...d, name: e.target.value} : d);
-                                setSpecialDates(newDates);
-                            }}
-                        />
-                        <div className="flex items-center gap-2">
-                             <select 
-                                className="p-1.5 border border-gray-300 rounded text-sm bg-white"
-                                value={special.isOpen ? "open" : "closed"}
-                                onChange={(e) => {
-                                    const isOpen = e.target.value === "open";
-                                    const newDates = specialDates.map(d => d.id === special.id ? {...d, isOpen} : d);
-                                    setSpecialDates(newDates);
-                                }}
-                             >
-                                 <option value="open">Open</option>
-                                 <option value="closed">Closed</option>
-                             </select>
-                             
-                             {special.isOpen && (
-                                <>
-                                    <input type="time" className="p-1.5 border border-gray-300 rounded text-sm bg-white w-24" defaultValue={special.openTime} />
-                                    <span>-</span>
-                                    <input type="time" className="p-1.5 border border-gray-300 rounded text-sm bg-white w-24" defaultValue={special.closeTime} />
-                                </>
-                             )}
-                        </div>
-                        <button onClick={() => removeSpecialDate(special.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded transition-colors ml-auto">
-                            <Trash2 size={16} />
-                        </button>
-                    </div>
-                ))}
+        {/* Add rule */}
+        <div className="mb-6 rounded-2xl border bg-muted/20 p-4">
+          <div className="grid gap-3 md:grid-cols-5">
+            <div className="md:col-span-1">
+              <label className="text-xs font-medium">Type</label>
+              <select
+                className="mt-1 h-10 w-full rounded-xl border px-3 text-sm"
+                value={ruleType}
+                onChange={(e) =>
+                  setRuleType(e.target.value as "CLOSED" | "SPECIAL_HOURS")
+                }
+              >
+                <option value="CLOSED">Closed</option>
+                <option value="SPECIAL_HOURS">Special hours</option>
+              </select>
             </div>
-        )}
-      </div>
 
-      <div className="flex justify-end">
-        <button className="bg-black text-white px-6 py-3 rounded-lg font-bold hover:bg-gray-800 flex items-center gap-2 shadow-lg hover:shadow-xl transition-all">
-          <Save size={18} /> Save All Changes
-        </button>
+            <div className="md:col-span-1">
+              <label className="text-xs font-medium">Start date</label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e: any) => setStartDate(e.target.value)}
+              />
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="text-xs font-medium">End date</label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e: any) => setEndDate(e.target.value)}
+              />
+            </div>
+
+            <div className="md:col-span-2 flex flex-col gap-2">
+              {ruleType === "SPECIAL_HOURS" ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium">Open</label>
+                    <Input
+                      type="time"
+                      value={openTime}
+                      onChange={(e: any) => setOpenTime(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium">Close</label>
+                    <Input
+                      type="time"
+                      value={closeTime}
+                      onChange={(e: any) => setCloseTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground pt-7">
+                  Closed means no bookings are allowed in this date range.
+                </div>
+              )}
+            </div>
+
+            <div className="md:col-span-5">
+              <label className="text-xs font-medium">Note (optional)</label>
+              <Input
+                value={note}
+                onChange={(e: any) => setNote(e.target.value)}
+                placeholder='e.g. "Vacation", "Christmas", "Private event"...'
+              />
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <Button onClick={addRule} disabled={savingRule || loading}>
+              {savingRule ? "Adding..." : "Add"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Rules list */}
+        {rules.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
+            No special rules yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {rules.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-col gap-2 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="text-sm font-medium">
+                    {r.type === "CLOSED" ? "Closed" : "Special hours"} •{" "}
+                    {r.startDate} → {r.endDate}
+                  </div>
+                  {r.type === "SPECIAL_HOURS" && (
+                    <div className="text-xs text-muted-foreground">
+                      {r.openTime} – {r.closeTime}
+                    </div>
+                  )}
+                  {r.note && (
+                    <div className="text-xs text-muted-foreground">{r.note}</div>
+                  )}
+                </div>
+
+                <Button
+                  variant="destructive"
+                  onClick={() => deleteRule(r.id)}
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
