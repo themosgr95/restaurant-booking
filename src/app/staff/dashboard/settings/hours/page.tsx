@@ -208,14 +208,10 @@ export default function HoursPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Hours</h1>
-          <p className="text-sm text-muted-foreground">
-            Weekly schedule + special hours and closures per location.
-          </p>
-        </div>
-      </div>
+      <div className="mb-6">
+  <h1 className="text-2xl font-semibold">Hours</h1>
+</div>
+
 
       {/* Location selector */}
       <div className="mb-6 rounded-3xl border bg-white p-6 shadow-sm">
