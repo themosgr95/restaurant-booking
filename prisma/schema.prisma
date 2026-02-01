@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")  // <--- Keep this exactly as "DATABASE_URL"
 }
 
+enum SpecialRuleType {
+  CLOSED
+  SPECIAL_HOURS
+}
+
 // --- USER & AUTH ---
 
 model User {
@@ -15,17 +20,15 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  
-  // --- ADD THESE LINES ---
+
   password      String?   // Allows null for Google Logins
   role          String    @default("STAFF") // STAFF, OWNER, ADMIN
-  // -----------------------
 
   accounts      Account[]
   sessions      Session[]
   memberships   Membership[]
-  bookings      Booking[] 
-  
+  bookings      Booking[]
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -54,7 +57,8 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -68,22 +72,24 @@ model VerificationToken {
 // --- RESTAURANT DATA ---
 
 model Location {
-  id              String           @id @default(cuid())
-  name            String
-  slug            String           @unique
-  description     String?
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  description  String?
 
-  // ADD THIS LINE:
-  turnoverTime    Int              @default(90) // Duration in minutes (default 1.5 hours)
+  // Turnover duration in minutes (used by booking wizard to lock tables)
+  turnoverTime Int      @default(90)
 
-  tables          Table[]
-  memberships     Membership[]
-  bookings        Booking[]
-  openingHours    OpeningHour[]
-  specialClosures SpecialClosure[]
+  tables       Table[]
+  memberships  Membership[]
+  bookings     Booking[]
+  openingHours OpeningHour[]
 
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  // ✅ NEW: replaces SpecialClosure
+  specialRules SpecialRule[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Membership {
@@ -103,13 +109,14 @@ model Membership {
 }
 
 model Table {
-  id        String   @id @default(cuid())
-  name      String
-  capacity  Int
+  id         String   @id @default(cuid())
+  name       String
+  capacity   Int
+
   locationId String
-  location  Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  
-  bookings  Booking[] // Relation to bookings
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  bookings   Booking[]
 }
 
 model Booking {
@@ -119,9 +126,9 @@ model Booking {
 
   // --- Booking Info ---
   date          DateTime
-  time          String    // <--- The new field you need
+  time          String    // e.g. "18:30"
   guests        Int
-  status        String    @default("CONFIRMED") // e.g., PENDING, CONFIRMED, CANCELLED
+  status        String    @default("CONFIRMED") // PENDING, CONFIRMED, CANCELLED
 
   // --- Customer Info ---
   customerName  String
@@ -129,17 +136,13 @@ model Booking {
   customerPhone String?
   notes         String?
 
-  // --- RELATIONS (This fixes your error) ---
-  
-  // 1. Link to Location (Required)
+  // --- Relations ---
   locationId    String
   location      Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  // 2. Link to Table (Optional, in case table isn't assigned yet)
   tableId       String?
   table         Table?    @relation(fields: [tableId], references: [id])
 
-  // 3. Link to User (Optional, if the booker has an account)
   userId        String?
   user          User?     @relation(fields: [userId], references: [id])
 }
@@ -147,18 +150,38 @@ model Booking {
 model OpeningHour {
   id        String   @id @default(cuid())
   dayOfWeek Int      // 0=Sunday, 1=Monday...
+  isOpen    Boolean  @default(true)
   openTime  String   // "09:00"
   closeTime String   // "22:00"
 
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // ✅ one row per day, per location
+  @@unique([locationId, dayOfWeek])
 }
 
-model SpecialClosure {
-  id        String   @id @default(cuid())
-  date      DateTime @db.Date
-  reason    String?
+// ✅ NEW MODEL (replaces SpecialClosure)
+// Supports:
+// - Closed date ranges (01-02 to 15-02)
+// - Special hours date ranges (e.g. holiday hours)
+model SpecialRule {
+  id        String          @id @default(cuid())
+  type      SpecialRuleType
+
+  // Date range (supports a single day by having startDate = endDate)
+  startDate DateTime        @db.Date
+  endDate   DateTime        @db.Date
+
+  // Only used when type = SPECIAL_HOURS
+  openTime  String?
+  closeTime String?
+
+  note      String?
 
   locationId String
-  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  location   Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 }

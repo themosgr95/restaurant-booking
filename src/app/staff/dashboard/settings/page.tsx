@@ -1,42 +1,23 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import * as React from "react";
 import { Button, Input } from "@/components/ui-primitives";
 
 type Location = {
   id: string;
   name: string;
-  turnoverMinutes: number | null;
+  slug?: string;
+  description?: string | null;
+  turnoverMinutes?: number | null;
 };
 
-function SubTab({ href, label }: { href: string; label: string }) {
-  const pathname = usePathname();
-  const active = pathname === href;
-
-  return (
-    <Link
-      href={href}
-      className={[
-        "rounded-xl px-3 py-2 text-sm",
-        active
-          ? "bg-black text-white"
-          : "text-muted-foreground hover:text-black hover:bg-muted/30",
-      ].join(" ")}
-    >
-      {label}
-    </Link>
-  );
-}
-
 function isLocationsPayload(payload: any): Location[] {
-  if (Array.isArray(payload)) return payload;
   if (payload && Array.isArray(payload.locations)) return payload.locations;
+  if (Array.isArray(payload)) return payload;
   return [];
 }
 
-export default function LocationsPage() {
+export default function SettingsPage() {
   const [locations, setLocations] = React.useState<Location[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -123,7 +104,6 @@ export default function LocationsPage() {
   }
 
   async function updateTurnover(id: string, value: number) {
-    // You already have /turnover route, so we use it
     const res = await fetch(`/api/restaurant/locations/${id}/turnover`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -144,11 +124,9 @@ export default function LocationsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
 
-      {/* Subtabs */}
+      {/* ✅ Only one subtab: Locations */}
       <div className="mb-6 flex flex-wrap gap-2">
-        <SubTab href="/staff/dashboard/settings" label="Restaurant" />
-        <SubTab href="/staff/dashboard/settings/locations" label="Locations" />
-        <SubTab href="/staff/dashboard/settings/hours" label="Hours" />
+        <span className="rounded-xl bg-black px-3 py-2 text-sm text-white">Locations</span>
       </div>
 
       {error ? (
@@ -226,10 +204,7 @@ export default function LocationsPage() {
                     defaultValue={l.turnoverMinutes ?? 60}
                     onBlur={(e: any) => updateTurnover(l.id, Number(e.target.value))}
                   />
-                  <Button
-                    variant="destructive"
-                    onClick={() => deleteLocation(l.id)}
-                  >
+                  <Button variant="destructive" onClick={() => deleteLocation(l.id)}>
                     Delete
                   </Button>
                 </div>

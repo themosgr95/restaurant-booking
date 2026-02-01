@@ -1,65 +1,130 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth/options";
 
-// Helper type for the params
-type RouteContext = {
-  params: Promise<{ locationId: string }>;
-};
+// expects "YYYY-MM-DD"
+function asDateOnly(dateStr: string) {
+  return new Date(`${dateStr}T00:00:00.000Z`);
+}
 
-export async function POST(req: Request, context: RouteContext) {
-  try {
-    const { locationId } = await context.params;
-    const { startDate, endDate, reason } = await req.json();
+type ParamsPromise = { params: Promise<{ locationId: string }> };
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    // Validate dates
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return NextResponse.json({ error: "Invalid dates" }, { status: 400 });
-    }
-
-    // Loop through each day in the range
-    const promises = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const currentDate = new Date(d); // Copy date
-      
-      // Check if closure exists for this specific day
-      const existing = await prisma.specialClosure.findFirst({
-        where: {
-          locationId: locationId,
-          date: currentDate
-        }
-      });
-
-      if (existing) {
-        // UPDATE existing
-        promises.push(
-          prisma.specialClosure.update({
-            where: { id: existing.id },
-            data: { reason }
-          })
-        );
-      } else {
-        // CREATE new
-        promises.push(
-          prisma.specialClosure.create({
-            data: {
-              locationId: locationId,
-              date: currentDate,
-              reason: reason
-            }
-          })
-        );
-      }
-    }
-
-    await Promise.all(promises);
-
-    return NextResponse.json({ success: true });
-
-  } catch (error) {
-    console.error("Closure Error:", error);
-    return NextResponse.json({ error: "Server Error" }, { status: 500 });
+export async function GET(_req: NextRequest, { params }: ParamsPromise) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const { locationId } = await params;
+
+  const membership = await prisma.membership.findFirst({
+    where: { locationId, user: { email: session.user.email } },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rules = await prisma.specialRule.findMany({
+    where: { locationId },
+    orderBy: { startDate: "asc" },
+  });
+
+  return NextResponse.json({
+    rules: rules.map((r) => ({
+      id: r.id,
+      type: r.type, // CLOSED | SPECIAL_HOURS
+      startDate: r.startDate.toISOString().slice(0, 10),
+      endDate: r.endDate.toISOString().slice(0, 10),
+      openTime: r.openTime ?? null,
+      closeTime: r.closeTime ?? null,
+      note: r.note ?? null,
+    })),
+  });
+}
+
+export async function POST(req: NextRequest, { params }: ParamsPromise) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { locationId } = await params;
+
+  const membership = await prisma.membership.findFirst({
+    where: { locationId, user: { email: session.user.email } },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+
+  const type = body?.type; // "CLOSED" | "SPECIAL_HOURS"
+  const startDate = body?.startDate; // "YYYY-MM-DD"
+  const endDate = body?.endDate; // "YYYY-MM-DD"
+
+  if (!type || !startDate || !endDate) {
+    return NextResponse.json(
+      { error: "type, startDate, endDate are required" },
+      { status: 400 }
+    );
+  }
+
+  if (type === "SPECIAL_HOURS" && (!body?.openTime || !body?.closeTime)) {
+    return NextResponse.json(
+      { error: "openTime and closeTime are required for SPECIAL_HOURS" },
+      { status: 400 }
+    );
+  }
+
+  const rule = await prisma.specialRule.create({
+    data: {
+      locationId,
+      type,
+      startDate: asDateOnly(startDate),
+      endDate: asDateOnly(endDate),
+      openTime: body?.openTime ?? null,
+      closeTime: body?.closeTime ?? null,
+      note: body?.note ?? null,
+    },
+  });
+
+  return NextResponse.json({ id: rule.id });
+}
+
+export async function DELETE(req: NextRequest, { params }: ParamsPromise) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { locationId } = await params;
+
+  const membership = await prisma.membership.findFirst({
+    where: { locationId, user: { email: session.user.email } },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const ruleId = url.searchParams.get("ruleId");
+
+  if (!ruleId) {
+    return NextResponse.json({ error: "ruleId is required" }, { status: 400 });
+  }
+
+  await prisma.specialRule.delete({
+    where: { id: ruleId },
+  });
+
+  return NextResponse.json({ ok: true });
 }
