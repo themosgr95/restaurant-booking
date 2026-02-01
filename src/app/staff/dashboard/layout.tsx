@@ -18,21 +18,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-6 text-sm">
-            <a className="text-blue-600 hover:underline" href="#" onClick={(e) => e.preventDefault()}>
+            <Link className="text-blue-600 hover:underline" href="/book/argo">
               View Booking Page ↗
-            </a>
+            </Link>
             <SignOutBtn />
           </div>
         </div>
 
-        {/* Main tabs */}
         <nav className="mx-auto max-w-6xl px-6 pb-3">
           <div className="flex items-center gap-6 text-sm">
-            <Link className="rounded-md px-2 py-1 text-muted-foreground hover:text-black" href="/staff/dashboard">
+            <Link
+              className="rounded-md px-2 py-1 text-muted-foreground hover:text-black"
+              href="/staff/dashboard"
+            >
               Timeline
             </Link>
 
-            <Link className="rounded-md px-2 py-1 text-muted-foreground hover:text-black" href="/staff/dashboard/tables">
+            <Link
+              className="rounded-md px-2 py-1 text-muted-foreground hover:text-black"
+              href="/staff/dashboard/tables"
+            >
               Tables
             </Link>
 
@@ -43,7 +48,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               Hours
             </Link>
 
-            {/* ✅ FIX: Settings must go to /settings (NOT /settings/restaurant) */}
             <Link
               className="rounded-md px-2 py-1 text-muted-foreground hover:text-black"
               href="/staff/dashboard/settings"
