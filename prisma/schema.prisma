@@ -157,7 +157,6 @@ model OpeningHour {
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  // ✅ one row per day, per location
   @@unique([locationId, dayOfWeek])
 }
 

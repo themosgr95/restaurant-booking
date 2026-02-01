@@ -4,134 +4,130 @@ import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 
-function slugify(input: string) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
+type ParamsPromise = { params: Promise<{ locationId: string }> };
+
+function isISODate(s: any) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+function isTime(s: any) {
+  return typeof s === "string" && /^\d{2}:\d{2}$/.test(s);
 }
 
-function randomSuffix() {
-  return Math.random().toString(36).slice(2, 6);
-}
-
-async function ensureUniqueSlug(base: string) {
-  let slug = base || `location-${randomSuffix()}`;
-  // try a few times
-  for (let i = 0; i < 8; i++) {
-    const exists = await prisma.location.findUnique({ where: { slug } });
-    if (!exists) return slug;
-    slug = `${base}-${randomSuffix()}`;
-  }
-  // last resort
-  return `${base}-${Date.now()}`;
-}
-
-export async function GET(_req: NextRequest) {
+export async function GET(_req: NextRequest, { params }: ParamsPromise) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const memberships = await prisma.membership.findMany({
-    where: { user: { email: session.user.email } },
-    include: { location: true },
-    orderBy: { createdAt: "asc" },
+  const { locationId } = await params;
+
+  const membership = await prisma.membership.findFirst({
+    where: { locationId, user: { email: session.user.email } },
+    select: { id: true },
+  });
+  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const rules = await prisma.specialRule.findMany({
+    where: { locationId },
+    orderBy: [{ startDate: "asc" }, { endDate: "asc" }],
   });
 
-  const locations = memberships.map((m) => ({
-    id: m.location.id,
-    name: m.location.name,
-    slug: m.location.slug,
-    turnoverTime: m.location.turnoverTime,
-  }));
-
-  return NextResponse.json({ locations });
+  // Return as YYYY-MM-DD strings for the UI
+  return NextResponse.json({
+    rules: rules.map((r) => ({
+      id: r.id,
+      type: r.type,
+      startDate: r.startDate.toISOString().slice(0, 10),
+      endDate: r.endDate.toISOString().slice(0, 10),
+      openTime: r.openTime,
+      closeTime: r.closeTime,
+      note: r.note,
+    })),
+  });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest, { params }: ParamsPromise) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { locationId } = await params;
+
+  const membership = await prisma.membership.findFirst({
+    where: { locationId, user: { email: session.user.email } },
+    select: { id: true },
+  });
+  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
-  const name = (body?.name ?? "").toString().trim();
 
-  // accept either turnoverMinutes or turnoverTime from the UI
-  const turnoverRaw = body?.turnoverMinutes ?? body?.turnoverTime ?? 90;
-  const turnoverTime = Math.max(5, Number(turnoverRaw) || 90);
+  const type = body?.type as "CLOSED" | "SPECIAL_HOURS";
+  const startDate = body?.startDate;
+  const endDate = body?.endDate;
+  const openTime = body?.openTime ?? null;
+  const closeTime = body?.closeTime ?? null;
+  const note = body?.note ?? null;
 
-  if (!name) {
-    return NextResponse.json({ error: "Name is required" }, { status: 400 });
+  const fieldErrors: Record<string, string> = {};
+
+  if (type !== "CLOSED" && type !== "SPECIAL_HOURS") fieldErrors.type = "Pick a valid type.";
+  if (!isISODate(startDate)) fieldErrors.startDate = "Pick a valid start date.";
+  if (!isISODate(endDate)) fieldErrors.endDate = "Pick a valid end date.";
+
+  if (isISODate(startDate) && isISODate(endDate) && startDate > endDate) {
+    fieldErrors.endDate = "End date must be after start date.";
   }
 
-  const baseSlug = slugify(name);
-  const slug = await ensureUniqueSlug(baseSlug);
+  if (type === "SPECIAL_HOURS") {
+    if (!isTime(openTime)) fieldErrors.openTime = "Pick a valid open time.";
+    if (!isTime(closeTime)) fieldErrors.closeTime = "Pick a valid close time.";
+    if (isTime(openTime) && isTime(closeTime) && openTime >= closeTime) {
+      fieldErrors.closeTime = "Close time must be after open time.";
+    }
+  }
 
-  // create location
-  const location = await prisma.location.create({
+  if (Object.keys(fieldErrors).length > 0) {
+    return NextResponse.json({ error: "Validation error", fieldErrors }, { status: 400 });
+  }
+
+  const created = await prisma.specialRule.create({
     data: {
-      name,
-      slug,
-      turnoverTime, // ✅ Prisma field name
+      locationId,
+      type,
+      startDate: new Date(`${startDate}T00:00:00.000Z`),
+      endDate: new Date(`${endDate}T00:00:00.000Z`),
+      openTime: type === "SPECIAL_HOURS" ? openTime : null,
+      closeTime: type === "SPECIAL_HOURS" ? closeTime : null,
+      note,
     },
   });
 
-  // add membership for creator (OWNER)
-  const user = await prisma.user.findFirst({
-    where: { email: session.user.email },
-    select: { id: true },
-  });
-
-  if (user) {
-    await prisma.membership.create({
-      data: {
-        userId: user.id,
-        locationId: location.id,
-        role: "OWNER",
-      },
-    });
-  }
-
   return NextResponse.json({
-    id: location.id,
-    name: location.name,
-    slug: location.slug,
-    turnoverTime: location.turnoverTime,
+    id: created.id,
+    type: created.type,
+    startDate,
+    endDate,
+    openTime: created.openTime,
+    closeTime: created.closeTime,
+    note: created.note,
   });
 }
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: NextRequest, { params }: ParamsPromise) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const url = new URL(req.url);
-  const locationId = url.searchParams.get("locationId");
+  const { locationId } = await params;
 
-  if (!locationId) {
-    return NextResponse.json({ error: "locationId is required" }, { status: 400 });
-  }
-
-  // only OWNER can delete
   const membership = await prisma.membership.findFirst({
-    where: {
-      locationId,
-      user: { email: session.user.email },
-      role: "OWNER",
-    },
+    where: { locationId, user: { email: session.user.email } },
     select: { id: true },
   });
+  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const url = new URL(req.url);
+  const ruleId = url.searchParams.get("ruleId");
+  if (!ruleId) return NextResponse.json({ error: "ruleId is required" }, { status: 400 });
 
-  await prisma.location.delete({
-    where: { id: locationId },
+  await prisma.specialRule.delete({
+    where: { id: ruleId },
   });
 
   return NextResponse.json({ ok: true });

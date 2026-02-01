@@ -11,7 +11,6 @@ const DEFAULT_CLOSE = "22:00";
 
 function normalizeTime(t: any) {
   const s = String(t || "").trim();
-  // basic "HH:MM" check
   if (!/^\d{2}:\d{2}$/.test(s)) return null;
   return s;
 }
@@ -38,33 +37,30 @@ export async function GET(_req: NextRequest, { params }: ParamsPromise) {
     orderBy: { dayOfWeek: "asc" },
   });
 
-  // If none exist yet, create defaults for 7 days
   if (existing.length === 0) {
-    const created = await prisma.$transaction(
-      Array.from({ length: 7 }).map((_, dayOfWeek) =>
-        prisma.openingHour.create({
-          data: {
-            locationId,
-            dayOfWeek,
-            isOpen: true,
-            openTime: DEFAULT_OPEN,
-            closeTime: DEFAULT_CLOSE,
-          },
-        })
-      )
-    );
+    await prisma.openingHour.createMany({
+      data: Array.from({ length: 7 }).map((_, dayOfWeek) => ({
+        locationId,
+        dayOfWeek,
+        isOpen: true,
+        openTime: DEFAULT_OPEN,
+        closeTime: DEFAULT_CLOSE,
+      })),
+    });
+
+    const created = await prisma.openingHour.findMany({
+      where: { locationId },
+      orderBy: { dayOfWeek: "asc" },
+    });
 
     return NextResponse.json({ hours: created });
   }
 
-  // Ensure we always return 7 rows (0..6). If something missing, fill it.
+  // ensure 7 rows
   const byDay = new Map(existing.map((h) => [h.dayOfWeek, h]));
-  const filled = [];
   for (let d = 0; d <= 6; d++) {
-    const row = byDay.get(d);
-    if (row) filled.push(row);
-    else {
-      const created = await prisma.openingHour.create({
+    if (!byDay.get(d)) {
+      await prisma.openingHour.create({
         data: {
           locationId,
           dayOfWeek: d,
@@ -73,9 +69,13 @@ export async function GET(_req: NextRequest, { params }: ParamsPromise) {
           closeTime: DEFAULT_CLOSE,
         },
       });
-      filled.push(created);
     }
   }
+
+  const filled = await prisma.openingHour.findMany({
+    where: { locationId },
+    orderBy: { dayOfWeek: "asc" },
+  });
 
   return NextResponse.json({ hours: filled });
 }
@@ -101,11 +101,14 @@ export async function PUT(req: NextRequest, { params }: ParamsPromise) {
   const hours = Array.isArray(body?.hours) ? body.hours : null;
 
   if (!hours) {
-    return NextResponse.json({ error: "hours[] is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Validation error", fieldErrors: { hours: "hours[] is required" } },
+      { status: 400 }
+    );
   }
 
-  // Validate + upsert 0..6
-  const updates = [];
+  const fieldErrors: Record<string, string> = {};
+
   for (const item of hours) {
     const dayOfWeek = Number(item?.dayOfWeek);
     if (!(dayOfWeek >= 0 && dayOfWeek <= 6)) continue;
@@ -114,26 +117,30 @@ export async function PUT(req: NextRequest, { params }: ParamsPromise) {
     const openTime = normalizeTime(item?.openTime) ?? DEFAULT_OPEN;
     const closeTime = normalizeTime(item?.closeTime) ?? DEFAULT_CLOSE;
 
-    updates.push(
-      prisma.openingHour.upsert({
-        where: { locationId_dayOfWeek: { locationId, dayOfWeek } },
-        create: {
-          locationId,
-          dayOfWeek,
-          isOpen,
-          openTime,
-          closeTime,
-        },
-        update: {
-          isOpen,
-          openTime,
-          closeTime,
-        },
-      })
-    );
+    if (isOpen && openTime >= closeTime) {
+      fieldErrors[`day_${dayOfWeek}`] = "Open time must be earlier than close time.";
+    }
   }
 
-  await prisma.$transaction(updates);
+  if (Object.keys(fieldErrors).length > 0) {
+    return NextResponse.json({ error: "Validation error", fieldErrors }, { status: 400 });
+  }
+
+  // upsert per day
+  for (const item of hours) {
+    const dayOfWeek = Number(item?.dayOfWeek);
+    if (!(dayOfWeek >= 0 && dayOfWeek <= 6)) continue;
+
+    const isOpen = Boolean(item?.isOpen);
+    const openTime = normalizeTime(item?.openTime) ?? DEFAULT_OPEN;
+    const closeTime = normalizeTime(item?.closeTime) ?? DEFAULT_CLOSE;
+
+    await prisma.openingHour.upsert({
+      where: { locationId_dayOfWeek: { locationId, dayOfWeek } },
+      create: { locationId, dayOfWeek, isOpen, openTime, closeTime },
+      update: { isOpen, openTime, closeTime },
+    });
+  }
 
   const saved = await prisma.openingHour.findMany({
     where: { locationId },

@@ -3,11 +3,7 @@
 import * as React from "react";
 import { Button, Input } from "@/components/ui-primitives";
 
-type Location = {
-  id: string;
-  name: string;
-  turnoverTime?: number | null;
-};
+type Location = { id: string; name: string; turnoverTime?: number | null };
 
 type OpeningHour = {
   id: string;
@@ -37,61 +33,56 @@ function todayISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function plusDaysISO(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
 export default function HoursPage() {
   const [locations, setLocations] = React.useState<Location[]>([]);
   const [locationId, setLocationId] = React.useState<string>("");
+
   const [hours, setHours] = React.useState<OpeningHour[]>([]);
   const [rules, setRules] = React.useState<SpecialRule[]>([]);
 
   const [loadingLocations, setLoadingLocations] = React.useState(false);
   const [loadingHours, setLoadingHours] = React.useState(false);
   const [savingHours, setSavingHours] = React.useState(false);
+
   const [loadingRules, setLoadingRules] = React.useState(false);
   const [savingRule, setSavingRule] = React.useState(false);
 
-  const [error, setError] = React.useState("");
+  // errors
+  const [globalError, setGlobalError] = React.useState("");
+  const [hourErrors, setHourErrors] = React.useState<Record<string, string>>({});
+  const [ruleErrors, setRuleErrors] = React.useState<Record<string, string>>({});
 
   // Add rule form
   const [ruleType, setRuleType] = React.useState<"CLOSED" | "SPECIAL_HOURS">("CLOSED");
   const [startDate, setStartDate] = React.useState(todayISO());
-  const [endDate, setEndDate] = React.useState(plusDaysISO(0));
+  const [endDate, setEndDate] = React.useState(todayISO());
   const [specialOpen, setSpecialOpen] = React.useState("11:00");
   const [specialClose, setSpecialClose] = React.useState("22:00");
   const [note, setNote] = React.useState("");
 
   async function loadLocations() {
     setLoadingLocations(true);
-    setError("");
+    setGlobalError("");
     try {
       const res = await fetch("/api/restaurant/locations", { cache: "no-store" });
       const json = await res.json().catch(() => null);
 
       if (!res.ok || !json) {
-        setError("Could not load locations.");
         setLocations([]);
+        setGlobalError("Could not load locations.");
         return;
       }
 
       const list: Location[] = Array.isArray(json.locations) ? json.locations : [];
       setLocations(list);
 
-      // pick saved location if possible
-      const saved = typeof window !== "undefined" ? localStorage.getItem("hours.locationId") : null;
+      const saved = localStorage.getItem("hours.locationId");
       const first = list[0]?.id || "";
+      const pick = saved && list.some((l) => l.id === saved) ? saved : first;
 
-      const pick = (saved && list.some((l) => l.id === saved)) ? saved : first;
       setLocationId(pick);
     } catch {
-      setError("Could not load locations.");
+      setGlobalError("Could not load locations.");
     } finally {
       setLoadingLocations(false);
     }
@@ -100,21 +91,22 @@ export default function HoursPage() {
   async function loadWeeklyHours(locId: string) {
     if (!locId) return;
     setLoadingHours(true);
-    setError("");
+    setGlobalError("");
+    setHourErrors({});
     try {
       const res = await fetch(`/api/restaurant/locations/${locId}/hours`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
 
-      if (!res.ok || !json) {
-        setError("Could not load opening hours.");
+      if (!res.ok) {
         setHours([]);
+        setGlobalError(json?.error || "Could not load weekly hours.");
         return;
       }
 
-      const list: OpeningHour[] = Array.isArray(json.hours) ? json.hours : [];
+      const list: OpeningHour[] = Array.isArray(json?.hours) ? json.hours : [];
       setHours(list);
     } catch {
-      setError("Could not load opening hours.");
+      setGlobalError("Could not load weekly hours.");
     } finally {
       setLoadingHours(false);
     }
@@ -123,21 +115,22 @@ export default function HoursPage() {
   async function loadSpecialRules(locId: string) {
     if (!locId) return;
     setLoadingRules(true);
-    setError("");
+    setGlobalError("");
+    setRuleErrors({});
     try {
       const res = await fetch(`/api/restaurant/locations/${locId}/closures`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
 
-      if (!res.ok || !json) {
-        setError("Could not load special rules.");
+      if (!res.ok) {
         setRules([]);
+        setGlobalError(json?.error || "Could not load special rules.");
         return;
       }
 
-      const list: SpecialRule[] = Array.isArray(json.rules) ? json.rules : [];
+      const list: SpecialRule[] = Array.isArray(json?.rules) ? json.rules : [];
       setRules(list);
     } catch {
-      setError("Could not load special rules.");
+      setGlobalError("Could not load special rules.");
     } finally {
       setLoadingRules(false);
     }
@@ -155,15 +148,16 @@ export default function HoursPage() {
   }, [locationId]);
 
   function updateDay(dayOfWeek: number, patch: Partial<OpeningHour>) {
-    setHours((prev) =>
-      prev.map((h) => (h.dayOfWeek === dayOfWeek ? { ...h, ...patch } : h))
-    );
+    setHours((prev) => prev.map((h) => (h.dayOfWeek === dayOfWeek ? { ...h, ...patch } : h)));
   }
 
   async function saveWeeklyHours() {
     if (!locationId) return;
+
     setSavingHours(true);
-    setError("");
+    setGlobalError("");
+    setHourErrors({});
+
     try {
       const res = await fetch(`/api/restaurant/locations/${locationId}/hours`, {
         method: "PUT",
@@ -172,13 +166,16 @@ export default function HoursPage() {
       });
 
       const json = await res.json().catch(() => null);
+
       if (!res.ok) {
-        setError(json?.error || "Could not save hours.");
+        if (json?.fieldErrors) setHourErrors(json.fieldErrors);
+        setGlobalError(json?.error || "Could not save hours.");
         return;
       }
 
-      // refresh
       await loadWeeklyHours(locationId);
+    } catch {
+      setGlobalError("Could not save hours.");
     } finally {
       setSavingHours(false);
     }
@@ -187,18 +184,30 @@ export default function HoursPage() {
   async function addRule() {
     if (!locationId) return;
 
-    if (!startDate || !endDate) {
-      setError("Please pick a start and end date.");
-      return;
-    }
-
-    if (ruleType === "SPECIAL_HOURS" && (!specialOpen || !specialClose)) {
-      setError("Please set open and close time for Special hours.");
-      return;
-    }
-
     setSavingRule(true);
-    setError("");
+    setGlobalError("");
+    setRuleErrors({});
+
+    // client validation (so user sees errors immediately)
+    const fe: Record<string, string> = {};
+    if (!startDate) fe.startDate = "Pick a start date.";
+    if (!endDate) fe.endDate = "Pick an end date.";
+    if (startDate && endDate && startDate > endDate) fe.endDate = "End date must be after start date.";
+
+    if (ruleType === "SPECIAL_HOURS") {
+      if (!specialOpen) fe.openTime = "Pick open time.";
+      if (!specialClose) fe.closeTime = "Pick close time.";
+      if (specialOpen && specialClose && specialOpen >= specialClose) {
+        fe.closeTime = "Close time must be after open time.";
+      }
+    }
+
+    if (Object.keys(fe).length > 0) {
+      setRuleErrors(fe);
+      setSavingRule(false);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/restaurant/locations/${locationId}/closures`, {
         method: "POST",
@@ -214,18 +223,22 @@ export default function HoursPage() {
       });
 
       const json = await res.json().catch(() => null);
+
       if (!res.ok) {
-        setError(json?.error || "Could not add rule.");
+        if (json?.fieldErrors) setRuleErrors(json.fieldErrors);
+        setGlobalError(json?.error || "Could not add rule.");
         return;
       }
 
-      // reset nice defaults
+      // reset
       setRuleType("CLOSED");
       setStartDate(todayISO());
       setEndDate(todayISO());
       setNote("");
 
       await loadSpecialRules(locationId);
+    } catch {
+      setGlobalError("Could not add rule.");
     } finally {
       setSavingRule(false);
     }
@@ -254,7 +267,6 @@ export default function HoursPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      {/* ✅ Clean single header (no extra subheader) */}
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Hours</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -262,9 +274,9 @@ export default function HoursPage() {
         </p>
       </div>
 
-      {error ? (
+      {globalError ? (
         <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+          {globalError}
         </div>
       ) : null}
 
@@ -274,7 +286,7 @@ export default function HoursPage() {
           <div>
             <div className="text-sm font-semibold">Location</div>
             <div className="text-xs text-muted-foreground">
-              Choose which area you’re setting hours for (Bar / Garden / Main).
+              Choose which area you’re setting hours for.
             </div>
           </div>
 
@@ -285,9 +297,7 @@ export default function HoursPage() {
               onChange={(e) => setLocationId(e.target.value)}
               disabled={loadingLocations}
             >
-              {locations.length === 0 ? (
-                <option value="">No locations yet</option>
-              ) : null}
+              {locations.length === 0 ? <option value="">No locations yet</option> : null}
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -330,7 +340,7 @@ export default function HoursPage() {
           <div className="text-sm text-muted-foreground">Loading weekly hours…</div>
         ) : hours.length === 0 ? (
           <div className="text-sm text-muted-foreground">
-            No weekly hours yet. Create a location first.
+            No weekly hours yet. (This will auto-create after the Prisma change + API.)
           </div>
         ) : (
           <div className="space-y-2">
@@ -338,49 +348,52 @@ export default function HoursPage() {
               const row = hours.find((h) => h.dayOfWeek === idx);
               if (!row) return null;
 
+              const dayErr = hourErrors[`day_${idx}`];
+
               return (
-                <div
-                  key={idx}
-                  className="flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      className="h-5 w-5 rounded"
-                      checked={row.isOpen}
-                      onChange={(e) => updateDay(idx, { isOpen: e.target.checked })}
-                    />
-                    <div>
-                      <div className="text-sm font-medium">{day}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {row.isOpen ? "Open" : "Closed"}
+                <div key={idx} className="rounded-2xl border p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 rounded"
+                        checked={row.isOpen}
+                        onChange={(e) => updateDay(idx, { isOpen: e.target.checked })}
+                      />
+                      <div>
+                        <div className="text-sm font-medium">{day}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {row.isOpen ? "Open" : "Closed"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-12">Open</span>
+                        <Input
+                          type="time"
+                          className="w-[140px]"
+                          value={row.openTime}
+                          disabled={!row.isOpen}
+                          onChange={(e: any) => updateDay(idx, { openTime: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-12">Close</span>
+                        <Input
+                          type="time"
+                          className="w-[140px]"
+                          value={row.closeTime}
+                          disabled={!row.isOpen}
+                          onChange={(e: any) => updateDay(idx, { closeTime: e.target.value })}
+                        />
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-12">Open</span>
-                      <Input
-                        type="time"
-                        className="w-[140px]"
-                        value={row.openTime}
-                        disabled={!row.isOpen}
-                        onChange={(e: any) => updateDay(idx, { openTime: e.target.value })}
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-12">Close</span>
-                      <Input
-                        type="time"
-                        className="w-[140px]"
-                        value={row.closeTime}
-                        disabled={!row.isOpen}
-                        onChange={(e: any) => updateDay(idx, { closeTime: e.target.value })}
-                      />
-                    </div>
-                  </div>
+                  {dayErr ? <div className="mt-2 text-xs text-red-600">{dayErr}</div> : null}
                 </div>
               );
             })}
@@ -397,7 +410,6 @@ export default function HoursPage() {
           </div>
         </div>
 
-        {/* Add rule form */}
         <div className="mb-6 rounded-2xl border p-4">
           <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-2">
@@ -410,16 +422,19 @@ export default function HoursPage() {
                 <option value="CLOSED">Closed</option>
                 <option value="SPECIAL_HOURS">Special hours</option>
               </select>
+              {ruleErrors.type ? <div className="text-xs text-red-600">{ruleErrors.type}</div> : null}
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Start</label>
               <Input type="date" value={startDate} onChange={(e: any) => setStartDate(e.target.value)} />
+              {ruleErrors.startDate ? <div className="text-xs text-red-600">{ruleErrors.startDate}</div> : null}
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">End</label>
               <Input type="date" value={endDate} onChange={(e: any) => setEndDate(e.target.value)} />
+              {ruleErrors.endDate ? <div className="text-xs text-red-600">{ruleErrors.endDate}</div> : null}
             </div>
 
             <div className="space-y-2">
@@ -433,11 +448,13 @@ export default function HoursPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Open</label>
                 <Input type="time" value={specialOpen} onChange={(e: any) => setSpecialOpen(e.target.value)} />
+                {ruleErrors.openTime ? <div className="text-xs text-red-600">{ruleErrors.openTime}</div> : null}
               </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">Close</label>
                 <Input type="time" value={specialClose} onChange={(e: any) => setSpecialClose(e.target.value)} />
+                {ruleErrors.closeTime ? <div className="text-xs text-red-600">{ruleErrors.closeTime}</div> : null}
               </div>
             </div>
           ) : null}
@@ -449,7 +466,6 @@ export default function HoursPage() {
           </div>
         </div>
 
-        {/* Existing rules */}
         {loadingRules ? (
           <div className="text-sm text-muted-foreground">Loading special rules…</div>
         ) : rules.length === 0 ? (
