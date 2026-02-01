@@ -4,110 +4,125 @@ import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 
-// expects "YYYY-MM-DD"
-function asDateOnly(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00.000Z`);
+function slugify(input: string) {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
 }
 
-type ParamsPromise = { params: Promise<{ locationId: string }> };
+function randomSuffix() {
+  return Math.random().toString(36).slice(2, 6);
+}
 
-export async function GET(_req: NextRequest, { params }: ParamsPromise) {
+async function ensureUniqueSlug(base: string) {
+  let slug = base || `location-${randomSuffix()}`;
+  // try a few times
+  for (let i = 0; i < 8; i++) {
+    const exists = await prisma.location.findUnique({ where: { slug } });
+    if (!exists) return slug;
+    slug = `${base}-${randomSuffix()}`;
+  }
+  // last resort
+  return `${base}-${Date.now()}`;
+}
+
+export async function GET(_req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await params;
-
-  const membership = await prisma.membership.findFirst({
-    where: { locationId, user: { email: session.user.email } },
-    select: { id: true },
+  const memberships = await prisma.membership.findMany({
+    where: { user: { email: session.user.email } },
+    include: { location: true },
+    orderBy: { createdAt: "asc" },
   });
 
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const locations = memberships.map((m) => ({
+    id: m.location.id,
+    name: m.location.name,
+    slug: m.location.slug,
+    turnoverTime: m.location.turnoverTime,
+  }));
 
-  const rules = await prisma.specialRule.findMany({
-    where: { locationId },
-    orderBy: { startDate: "asc" },
-  });
-
-  return NextResponse.json({
-    rules: rules.map((r) => ({
-      id: r.id,
-      type: r.type, // CLOSED | SPECIAL_HOURS
-      startDate: r.startDate.toISOString().slice(0, 10),
-      endDate: r.endDate.toISOString().slice(0, 10),
-      openTime: r.openTime ?? null,
-      closeTime: r.closeTime ?? null,
-      note: r.note ?? null,
-    })),
-  });
+  return NextResponse.json({ locations });
 }
 
-export async function POST(req: NextRequest, { params }: ParamsPromise) {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { locationId } = await params;
-
-  const membership = await prisma.membership.findFirst({
-    where: { locationId, user: { email: session.user.email } },
-    select: { id: true },
-  });
-
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => null);
+  const name = (body?.name ?? "").toString().trim();
 
-  const type = body?.type; // "CLOSED" | "SPECIAL_HOURS"
-  const startDate = body?.startDate; // "YYYY-MM-DD"
-  const endDate = body?.endDate; // "YYYY-MM-DD"
+  // accept either turnoverMinutes or turnoverTime from the UI
+  const turnoverRaw = body?.turnoverMinutes ?? body?.turnoverTime ?? 90;
+  const turnoverTime = Math.max(5, Number(turnoverRaw) || 90);
 
-  if (!type || !startDate || !endDate) {
-    return NextResponse.json(
-      { error: "type, startDate, endDate are required" },
-      { status: 400 }
-    );
+  if (!name) {
+    return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  if (type === "SPECIAL_HOURS" && (!body?.openTime || !body?.closeTime)) {
-    return NextResponse.json(
-      { error: "openTime and closeTime are required for SPECIAL_HOURS" },
-      { status: 400 }
-    );
-  }
+  const baseSlug = slugify(name);
+  const slug = await ensureUniqueSlug(baseSlug);
 
-  const rule = await prisma.specialRule.create({
+  // create location
+  const location = await prisma.location.create({
     data: {
-      locationId,
-      type,
-      startDate: asDateOnly(startDate),
-      endDate: asDateOnly(endDate),
-      openTime: body?.openTime ?? null,
-      closeTime: body?.closeTime ?? null,
-      note: body?.note ?? null,
+      name,
+      slug,
+      turnoverTime, // ✅ Prisma field name
     },
   });
 
-  return NextResponse.json({ id: rule.id });
+  // add membership for creator (OWNER)
+  const user = await prisma.user.findFirst({
+    where: { email: session.user.email },
+    select: { id: true },
+  });
+
+  if (user) {
+    await prisma.membership.create({
+      data: {
+        userId: user.id,
+        locationId: location.id,
+        role: "OWNER",
+      },
+    });
+  }
+
+  return NextResponse.json({
+    id: location.id,
+    name: location.name,
+    slug: location.slug,
+    turnoverTime: location.turnoverTime,
+  });
 }
 
-export async function DELETE(req: NextRequest, { params }: ParamsPromise) {
+export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await params;
+  const url = new URL(req.url);
+  const locationId = url.searchParams.get("locationId");
 
+  if (!locationId) {
+    return NextResponse.json({ error: "locationId is required" }, { status: 400 });
+  }
+
+  // only OWNER can delete
   const membership = await prisma.membership.findFirst({
-    where: { locationId, user: { email: session.user.email } },
+    where: {
+      locationId,
+      user: { email: session.user.email },
+      role: "OWNER",
+    },
     select: { id: true },
   });
 
@@ -115,15 +130,8 @@ export async function DELETE(req: NextRequest, { params }: ParamsPromise) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const url = new URL(req.url);
-  const ruleId = url.searchParams.get("ruleId");
-
-  if (!ruleId) {
-    return NextResponse.json({ error: "ruleId is required" }, { status: 400 });
-  }
-
-  await prisma.specialRule.delete({
-    where: { id: ruleId },
+  await prisma.location.delete({
+    where: { id: locationId },
   });
 
   return NextResponse.json({ ok: true });

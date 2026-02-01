@@ -7,15 +7,8 @@ type Location = {
   id: string;
   name: string;
   slug?: string;
-  description?: string | null;
-  turnoverMinutes?: number | null;
+  turnoverTime?: number | null; // ✅ correct field
 };
-
-function isLocationsPayload(payload: any): Location[] {
-  if (payload && Array.isArray(payload.locations)) return payload.locations;
-  if (Array.isArray(payload)) return payload;
-  return [];
-}
 
 export default function SettingsPage() {
   const [locations, setLocations] = React.useState<Location[]>([]);
@@ -23,31 +16,24 @@ export default function SettingsPage() {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState("");
 
-  // form
   const [name, setName] = React.useState("");
-  const [turnoverMinutes, setTurnoverMinutes] = React.useState<number>(60);
+  const [turnoverTime, setTurnoverTime] = React.useState<number>(60);
 
   async function loadLocations() {
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/restaurant/locations", { cache: "no-store" });
-      const text = await res.text();
-      const json = (() => {
-        try {
-          return JSON.parse(text);
-        } catch {
-          return null;
-        }
-      })();
+      const json = await res.json().catch(() => null);
 
       if (!res.ok || !json) {
         setLocations([]);
-        setError("Could not load locations (API error).");
+        setError("Could not load locations.");
         return;
       }
 
-      setLocations(isLocationsPayload(json));
+      const list = Array.isArray(json.locations) ? json.locations : [];
+      setLocations(list);
     } catch {
       setError("Could not load locations.");
     } finally {
@@ -70,18 +56,22 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          turnoverMinutes: Number(turnoverMinutes),
+          turnoverTime: Number(turnoverTime),
         }),
       });
 
+      const json = await res.json().catch(() => null);
+
       if (!res.ok) {
-        setError("Could not create location.");
+        setError(json?.error || "Could not create location.");
         return;
       }
 
       setName("");
-      setTurnoverMinutes(60);
+      setTurnoverTime(60);
       await loadLocations();
+    } catch {
+      setError("Could not create location.");
     } finally {
       setSaving(false);
     }
@@ -95,8 +85,10 @@ export default function SettingsPage() {
       method: "DELETE",
     });
 
+    const json = await res.json().catch(() => null);
+
     if (!res.ok) {
-      alert("Could not delete location.");
+      alert(json?.error || "Could not delete location.");
       return;
     }
 
@@ -107,11 +99,13 @@ export default function SettingsPage() {
     const res = await fetch(`/api/restaurant/locations/${id}/turnover`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ turnoverMinutes: value }),
+      body: JSON.stringify({ turnoverTime: value }),
     });
 
+    const json = await res.json().catch(() => null);
+
     if (!res.ok) {
-      alert("Could not update turnover.");
+      alert(json?.error || "Could not update turnover.");
       return;
     }
 
@@ -124,8 +118,7 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
 
-      {/* ✅ Only one subtab: Locations */}
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-6 flex">
         <span className="rounded-xl bg-black px-3 py-2 text-sm text-white">Locations</span>
       </div>
 
@@ -137,10 +130,13 @@ export default function SettingsPage() {
 
       {/* Add location */}
       <div className="mb-6 rounded-3xl border bg-white p-6 shadow-sm">
-        <div className="mb-4 text-lg font-semibold">Add location</div>
+        <div className="mb-1 text-lg font-semibold">Add location</div>
+        <div className="mb-5 text-sm text-muted-foreground">
+          Create areas like Main Restaurant, Bar, Garden — and set how long a table stays locked after a booking.
+        </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2 sm:col-span-2">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium">Name</label>
             <Input
               value={name}
@@ -150,32 +146,30 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium">Turnover (minutes)</label>
+            <label className="text-sm font-medium">Turnover (min)</label>
             <Input
               type="number"
-              value={turnoverMinutes}
-              onChange={(e: any) => setTurnoverMinutes(Number(e.target.value))}
+              value={turnoverTime}
+              onChange={(e: any) => setTurnoverTime(Number(e.target.value))}
               min={5}
               step={5}
             />
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex gap-2">
           <Button onClick={addLocation} disabled={saving}>
             {saving ? "Adding..." : "Add location"}
           </Button>
-        </div>
-      </div>
-
-      {/* Location list */}
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="text-lg font-semibold">Your locations</div>
           <Button variant="outline" onClick={loadLocations} disabled={loading}>
             {loading ? "Loading..." : "Refresh"}
           </Button>
         </div>
+      </div>
+
+      {/* List */}
+      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="mb-4 text-lg font-semibold">Your locations</div>
 
         {locations.length === 0 ? (
           <div className="text-sm text-muted-foreground">
@@ -186,27 +180,38 @@ export default function SettingsPage() {
             {locations.map((l) => (
               <div
                 key={l.id}
-                className="flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="rounded-2xl border p-4"
               >
-                <div>
-                  <div className="text-sm font-medium">{l.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Turnover: {l.turnoverMinutes ?? "—"} min
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold">{l.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Turnover: {l.turnoverTime ?? 90} min
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    type="number"
-                    className="w-[140px]"
-                    min={5}
-                    step={5}
-                    defaultValue={l.turnoverMinutes ?? 60}
-                    onBlur={(e: any) => updateTurnover(l.id, Number(e.target.value))}
-                  />
-                  <Button variant="destructive" onClick={() => deleteLocation(l.id)}>
-                    Delete
-                  </Button>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Turnover</span>
+                      <Input
+                        type="number"
+                        className="w-[140px]"
+                        min={5}
+                        step={5}
+                        defaultValue={l.turnoverTime ?? 90}
+                        onBlur={(e: any) => updateTurnover(l.id, Number(e.target.value))}
+                      />
+                      <span className="text-xs text-muted-foreground">min</span>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => deleteLocation(l.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
