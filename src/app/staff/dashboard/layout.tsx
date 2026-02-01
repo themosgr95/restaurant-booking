@@ -1,79 +1,60 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutGrid, Calendar, Clock, Settings, LogOut } from "lucide-react";
+import { ReactNode } from "react";
+import SignOutBtn from "./sign-out-btn";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-
-  const navigation = [
-    { name: "Timeline", href: "/staff/dashboard/timeline", icon: Calendar },
-    { name: "Tables", href: "/staff/dashboard/tables", icon: LayoutGrid }, // <--- FIXED LINK (No longer inside /settings)
-    { name: "Hours", href: "/staff/dashboard/settings/hours", icon: Clock },
-    { name: "Settings", href: "/staff/dashboard/settings/restaurant", icon: Settings },
-  ];
-
+export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-white">
-      {/* Top Navigation Bar */}
-      <header className="border-b border-gray-200 sticky top-0 z-50 bg-white/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            
-            {/* Logo Area */}
-            <div className="flex items-center gap-4">
-              <div className="bg-black text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xl">
-                A
-              </div>
-              <div>
-                <h1 className="font-bold text-gray-900 leading-none">Argo</h1>
-                <p className="text-[10px] font-bold text-gray-400 tracking-wider">OWNER DASHBOARD</p>
-              </div>
+      <header className="border-b">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-black text-white">
+              A
             </div>
-
-            {/* Navigation Links */}
-            <nav className="hidden md:flex items-center space-x-8 h-full">
-              {navigation.map((item) => {
-                const isActive = pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`relative h-full flex items-center gap-2 text-sm font-bold transition-colors ${
-                      isActive ? "text-black" : "text-gray-400 hover:text-gray-600"
-                    }`}
-                  >
-                    <item.icon size={18} />
-                    {item.name}
-                    {/* Active Underline Indicator */}
-                    {isActive && (
-                        <span className="absolute bottom-0 left-0 w-full h-[3px] bg-black rounded-t-full"></span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {/* Right Side Actions */}
-            <div className="flex items-center gap-4">
-              <Link href="/" target="_blank" className="text-sm font-bold text-blue-600 hover:underline hidden sm:block">
-                View Booking Page ↗
-              </Link>
-              <div className="h-6 w-px bg-gray-200 hidden sm:block"></div>
-              <Link href="/api/auth/signout" className="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-red-500 transition-colors">
-                <LogOut size={16} />
-                <span className="hidden sm:inline">Sign Out</span>
-              </Link>
+            <div className="leading-tight">
+              <div className="text-base font-semibold">Argo</div>
+              <div className="text-xs text-muted-foreground">OWNER DASHBOARD</div>
             </div>
           </div>
+
+          <div className="flex items-center gap-6 text-sm">
+            <a className="text-blue-600 hover:underline" href="#" onClick={(e) => e.preventDefault()}>
+              View Booking Page ↗
+            </a>
+            <SignOutBtn />
+          </div>
         </div>
+
+        {/* Main tabs */}
+        <nav className="mx-auto max-w-6xl px-6 pb-3">
+          <div className="flex items-center gap-6 text-sm">
+            <Link className="rounded-md px-2 py-1 text-muted-foreground hover:text-black" href="/staff/dashboard">
+              Timeline
+            </Link>
+
+            <Link className="rounded-md px-2 py-1 text-muted-foreground hover:text-black" href="/staff/dashboard/tables">
+              Tables
+            </Link>
+
+            <Link
+              className="rounded-md px-2 py-1 text-muted-foreground hover:text-black"
+              href="/staff/dashboard/settings/hours"
+            >
+              Hours
+            </Link>
+
+            {/* ✅ FIX: Settings must go to /settings (NOT /settings/restaurant) */}
+            <Link
+              className="rounded-md px-2 py-1 text-muted-foreground hover:text-black"
+              href="/staff/dashboard/settings"
+            >
+              Settings
+            </Link>
+          </div>
+        </nav>
       </header>
 
-      {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        {children}
-      </main>
+      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
     </div>
   );
 }
