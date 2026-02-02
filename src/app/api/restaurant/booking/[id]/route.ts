@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 
 // Define the type for the dynamic route context
@@ -7,9 +7,8 @@ type RouteContext = {
 };
 
 // DELETE a booking
-export async function DELETE(req: Request, context: RouteContext) {
+export async function DELETE(_req: NextRequest, context: RouteContext) {
   try {
-    // 1. Await the params (Critical fix for Next.js 15+)
     const { id } = await context.params;
 
     await prisma.booking.delete({
@@ -22,9 +21,8 @@ export async function DELETE(req: Request, context: RouteContext) {
 }
 
 // UPDATE a booking
-export async function PUT(req: Request, context: RouteContext) {
+export async function PUT(req: NextRequest, context: RouteContext) {
   try {
-    // 1. Await the params (Critical fix for Next.js 15+)
     const { id } = await context.params;
     const bookingId = id;
     

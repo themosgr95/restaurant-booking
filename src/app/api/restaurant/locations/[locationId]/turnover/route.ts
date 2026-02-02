@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 
-type ParamsPromise = { params: Promise<{ locationId: string }> };
+type ParamsPromise = { params: { locationId: string } };
 
 export async function PUT(req: NextRequest, { params }: ParamsPromise) {
   const session = await getServerSession(authOptions);
@@ -12,7 +12,7 @@ export async function PUT(req: NextRequest, { params }: ParamsPromise) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await params;
+  const { locationId } = params;
 
   const membership = await prisma.membership.findFirst({
     where: { locationId, user: { email: session.user.email } },

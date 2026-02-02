@@ -5,10 +5,10 @@ import { NextResponse } from "next/server";
 
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ locationId: string }> }
+  { params }: { params: { locationId: string } }
 ) {
   try {
-    const { locationId } = await params;
+    const { locationId } = params;
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.email) {

@@ -5,14 +5,14 @@ import { authOptions } from "@/lib/auth/options";
 
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: Promise<{ locationId: string }> }
+  ctx: { params: { locationId: string } }
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await ctx.params;
+  const { locationId } = ctx.params;
 
   // must be member
   const membership = await prisma.membership.findFirst({
@@ -59,14 +59,14 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  ctx: { params: Promise<{ locationId: string }> }
+  ctx: { params: { locationId: string } }
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await ctx.params;
+  const { locationId } = ctx.params;
 
   // must be member
   const membership = await prisma.membership.findFirst({

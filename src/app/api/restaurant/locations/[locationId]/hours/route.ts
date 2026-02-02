@@ -6,14 +6,14 @@ import { authOptions } from "@/lib/auth/options";
 
 export async function GET(
   _req: NextRequest,
-  ctx: { params: Promise<{ locationId: string }> }
+  ctx: { params: { locationId: string } }
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { locationId } = await ctx.params;
+  const { locationId } = ctx.params;
 
   const membership = await prisma.membership.findFirst({
     where: { locationId, user: { email: session.user.email } },
