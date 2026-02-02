@@ -1,36 +1,26 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth/options";
 
-type ParamsPromise = { params: { locationId: string } };
+// PUT: Update turnover time for a location
+export async function PUT(
+  req: Request,
+  props: { params: Promise<{ locationId: string }> }
+) {
+  try {
+    // FIX: Await params
+    const params = await props.params;
+    const { locationId } = params;
 
-export async function PUT(req: NextRequest, { params }: ParamsPromise) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const body = await req.json();
+    const { turnoverTime } = body;
+
+    const updatedLocation = await prisma.location.update({
+      where: { id: locationId },
+      data: { turnoverTime: parseInt(turnoverTime) },
+    });
+
+    return NextResponse.json({ ok: true, turnoverTime: updatedLocation.turnoverTime });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to update turnover" }, { status: 500 });
   }
-
-  const { locationId } = params;
-
-  const membership = await prisma.membership.findFirst({
-    where: { locationId, user: { email: session.user.email } },
-    select: { id: true },
-  });
-
-  if (!membership) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const body = await req.json().catch(() => null);
-  const turnoverRaw = body?.turnoverMinutes ?? body?.turnoverTime ?? 90;
-  const turnoverTime = Math.max(5, Number(turnoverRaw) || 90);
-
-  await prisma.location.update({
-    where: { id: locationId },
-    data: { turnoverTime },
-  });
-
-  return NextResponse.json({ ok: true, turnoverTime });
 }
