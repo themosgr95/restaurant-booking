@@ -1,155 +1,240 @@
 "use client";
 
-import { useState } from "react";
-import { Save, Clock, MapPin, Trash2, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { Clock, MapPin, Trash2, Plus, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-export default function SettingsView({ locations }: { locations: any[] }) {
+type LocationRow = {
+  id: string;
+  name: string;
+  turnoverTime: number;
+};
+
+function slugify(input: string) {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+export default function SettingsView({ locations }: { locations: LocationRow[] }) {
   const router = useRouter();
-  const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  // Keep a local list so we can update instantly (no refresh button)
+  const [items, setItems] = useState<LocationRow[]>(locations ?? []);
+
   const [newLocName, setNewLocName] = useState("");
-  
-  // Local state to manage inputs before saving
-  const [updates, setUpdates] = useState<{ [key: string]: number }>({});
+  const [newTurnover, setNewTurnover] = useState<number>(60);
 
-  const handleUpdateTurnover = async (locationId: string, currentVal: number) => {
-    const newVal = updates[locationId];
-    if (newVal === undefined || newVal === currentVal) return; 
+  const [busy, setBusy] = useState(false);
 
-    setLoadingId(locationId);
-    
+  // Inline banners
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const canAdd = useMemo(() => {
+    const nameOk = newLocName.trim().length >= 2;
+    const turnoverOk = Number.isFinite(newTurnover) && newTurnover >= 10 && newTurnover <= 600;
+    return nameOk && turnoverOk && !busy;
+  }, [newLocName, newTurnover, busy]);
+
+  async function handleAddLocation() {
+    if (!canAdd) return;
+
+    setBusy(true);
+    setErrorMsg(null);
+    setOkMsg(null);
+
     try {
-      // Calls the Turnover API we fixed earlier
-      const res = await fetch(`/api/restaurant/locations/${locationId}/turnover`, {
+      const payload = {
+        name: newLocName.trim(),
+        turnoverTime: Number(newTurnover),
+      };
+
+      const res = await fetch("/api/restaurant/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turnoverTime: newVal })
+        body: JSON.stringify(payload),
       });
-      
-      if (res.ok) {
-        router.refresh(); // Refresh to update server data
-        // Clear the 'unsaved change' state for this item
-        const newUpdates = { ...updates };
-        delete newUpdates[locationId];
-        setUpdates(newUpdates);
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErrorMsg(data?.error ?? "Could not create location.");
+        return;
       }
+
+      // Add instantly to list (no reload)
+      setItems((prev) => [data.location, ...prev]);
+
+      setNewLocName("");
+      setNewTurnover(60);
+
+      setOkMsg(`Location "${data.location.name}" created ✅`);
+      // Optional: refresh server components if you rely on them elsewhere
+      router.refresh();
     } catch (e) {
-      alert("Failed to save. Please try again.");
+      setErrorMsg("Network error. Please try again.");
     } finally {
-      setLoadingId(null);
+      setBusy(false);
+      // auto-hide success after a bit
+      setTimeout(() => setOkMsg(null), 2500);
     }
-  };
+  }
 
-  const handleAddLocation = async () => {
-    if (!newLocName) return;
-    await fetch("/api/restaurant/locations", {
-      method: "POST", 
-      body: JSON.stringify({ name: newLocName })
-    });
-    setNewLocName("");
-    router.refresh();
-  };
+  async function handleDelete(id: string) {
+    const loc = items.find((x) => x.id === id);
+    if (!confirm(`Delete "${loc?.name ?? "this location"}"? Tables & bookings inside it will be lost.`)) return;
 
-  const handleDelete = async (id: string) => {
-    if(!confirm("Delete this location? All tables and bookings in it will be lost.")) return;
-    await fetch(`/api/restaurant/locations?id=${id}`, { method: "DELETE" });
-    router.refresh();
-  };
+    setBusy(true);
+    setErrorMsg(null);
+    setOkMsg(null);
+
+    try {
+      const res = await fetch(`/api/restaurant/locations?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErrorMsg(data?.error ?? "Could not delete location.");
+        return;
+      }
+
+      setItems((prev) => prev.filter((x) => x.id !== id));
+      setOkMsg("Location deleted.");
+      router.refresh();
+    } catch {
+      setErrorMsg("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+      setTimeout(() => setOkMsg(null), 2500);
+    }
+  }
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto pb-20 animate-in fade-in duration-500">
-      
+    <div className="space-y-6 max-w-4xl mx-auto pb-20 animate-in fade-in duration-300">
       {/* Header */}
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-        <h2 className="text-xl font-black text-gray-900 mb-2">Location Management</h2>
+        <h2 className="text-xl font-black text-gray-900 mb-1">Locations</h2>
         <p className="text-gray-500 text-sm">
-          Define your restaurant areas and how long guests usually stay (Eating Time).
-          This <strong>Turnover Time</strong> tells the <strong>Ding! Wizard</strong> when to unlock the table for the next guest.
+          Create areas like <b>Main</b>, <b>Bar</b>, <b>Garden</b> and set the <b>turnover time</b> (how long a table stays locked after a booking).
         </p>
       </div>
 
-      {/* List of Locations */}
-      <div className="grid gap-4">
-        {locations.map((loc) => {
-           // Value to display: Either the pending update OR the saved value from DB
-           const displayValue = updates[loc.id] !== undefined ? updates[loc.id] : (loc.turnoverTime || 90);
-           const hasChanges = updates[loc.id] !== undefined && updates[loc.id] !== loc.turnoverTime;
+      {/* Messages */}
+      {errorMsg && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 mt-0.5" />
+          <div className="text-sm font-semibold">{errorMsg}</div>
+        </div>
+      )}
 
-           return (
-            <div key={loc.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row items-center gap-4 transition-all hover:border-orange-200">
-              
-              {/* Icon & Name */}
-              <div className="flex items-center gap-3 flex-1 w-full">
-                <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center text-orange-600">
-                  <MapPin className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="font-bold text-gray-900">{loc.name}</div>
-                  <div className="text-xs text-gray-400 font-mono">ID: {loc.id.substring(0,8)}...</div>
-                </div>
-              </div>
+      {okMsg && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-start gap-2">
+          <CheckCircle2 className="w-5 h-5 mt-0.5" />
+          <div className="text-sm font-semibold">{okMsg}</div>
+        </div>
+      )}
 
-              {/* Turnover Control */}
-              <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg w-full md:w-auto">
-                <Clock className="w-4 h-4 text-gray-400" />
-                <div className="flex flex-col">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">Eating Time</label>
-                  <div className="flex items-center gap-1">
-                    <input 
-                      type="number" 
-                      min="15"
-                      max="300"
-                      value={displayValue}
-                      onChange={(e) => setUpdates({ ...updates, [loc.id]: parseInt(e.target.value) })}
-                      className="bg-transparent font-bold text-gray-900 w-12 outline-none border-b border-gray-300 focus:border-orange-500 text-center"
-                    />
-                    <span className="text-xs font-bold text-gray-500">min</span>
+      {/* Add Location Card */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+        <h3 className="font-black text-gray-900 mb-4">Add location</h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="md:col-span-2">
+            <label className="text-xs font-bold text-gray-500">Name</label>
+            <input
+              value={newLocName}
+              onChange={(e) => setNewLocName(e.target.value)}
+              placeholder="e.g. Garden, Bar, Main..."
+              className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 font-semibold outline-none focus:border-black"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-gray-500">Turnover (min)</label>
+            <input
+              type="number"
+              min={10}
+              max={600}
+              value={newTurnover}
+              onChange={(e) => setNewTurnover(Number(e.target.value))}
+              className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 font-semibold outline-none focus:border-black"
+            />
+          </div>
+        </div>
+
+        <button
+          disabled={!canAdd}
+          onClick={handleAddLocation}
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-white font-bold text-sm disabled:opacity-50"
+        >
+          {busy ? (
+            <span className="animate-spin block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+          ) : (
+            <Plus className="w-4 h-4" />
+          )}
+          Add location
+        </button>
+      </div>
+
+      {/* Locations list */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-black text-gray-900">Your locations</h3>
+          <div className="text-xs text-gray-500">{items.length} total</div>
+        </div>
+
+        {items.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-10 text-center">
+            <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <div className="font-bold text-gray-900">No locations yet</div>
+            <div className="text-sm text-gray-500">Add your first area above.</div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {items.map((loc) => (
+              <div
+                key={loc.id}
+                className="rounded-2xl border border-gray-200 p-4 flex flex-col md:flex-row md:items-center gap-3 hover:shadow-sm transition"
+              >
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center text-gray-600">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="font-black text-gray-900 leading-tight">{loc.name}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                      <Clock className="w-3.5 h-3.5" /> {loc.turnoverTime} min turnover
+                    </div>
                   </div>
                 </div>
-                
-                {/* Save Button (Only appears if changed) */}
-                {hasChanges && (
-                  <button 
-                    onClick={() => handleUpdateTurnover(loc.id, loc.turnoverTime)}
-                    disabled={loadingId === loc.id}
-                    className="ml-2 bg-black text-white p-2 rounded-lg hover:bg-gray-800 transition-colors shadow-md"
+
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/staff/dashboard/settings/locations/${loc.id}`}
+                    className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-bold hover:bg-gray-50"
                   >
-                    {loadingId === loc.id ? <span className="animate-spin block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"/> : <Save className="w-4 h-4" />}
+                    Manage
+                  </Link>
+
+                  <button
+                    onClick={() => handleDelete(loc.id)}
+                    className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-bold text-red-600 hover:bg-red-50 hover:border-red-200 inline-flex items-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete
                   </button>
-                )}
+                </div>
               </div>
-
-              {/* Delete */}
-              <button onClick={() => handleDelete(loc.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                <Trash2 className="w-5 h-5" />
-              </button>
-
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* Add New Location */}
-      <div className="flex items-center gap-2 mt-4 bg-gray-100 p-2 rounded-xl border border-dashed border-gray-300 hover:border-orange-300 transition-colors">
-         <div className="w-10 h-10 flex items-center justify-center text-gray-400">
-            <Plus className="w-5 h-5" />
-         </div>
-         <input 
-           placeholder="Add new area name (e.g. Garden)..." 
-           className="bg-transparent flex-1 font-bold outline-none text-gray-700 placeholder:font-normal"
-           value={newLocName}
-           onChange={(e) => setNewLocName(e.target.value)}
-           onKeyDown={(e) => e.key === 'Enter' && handleAddLocation()}
-         />
-         <button 
-           disabled={!newLocName}
-           onClick={handleAddLocation}
-           className="px-4 py-2 bg-black text-white rounded-lg font-bold text-sm disabled:opacity-50"
-         >
-           Add
-         </button>
-      </div>
-
     </div>
   );
 }

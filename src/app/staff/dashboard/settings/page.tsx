@@ -1,43 +1,41 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { Button, Input } from "@/components/ui-primitives";
 
-type LocationRow = {
+type Location = {
   id: string;
   name: string;
-  slug: string;
-  turnoverTime: number;
+  slug?: string;
+  turnoverTime?: number | null; // ✅ correct field
 };
 
 export default function SettingsPage() {
-  const [locations, setLocations] = React.useState<LocationRow[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [locations, setLocations] = React.useState<Location[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState("");
 
   const [name, setName] = React.useState("");
-  const [turnover, setTurnover] = React.useState<number>(60);
-
-  const [formError, setFormError] = React.useState<string | null>(null);
-  const [submitting, setSubmitting] = React.useState(false);
+  const [turnoverTime, setTurnoverTime] = React.useState<number>(60);
 
   async function loadLocations() {
     setLoading(true);
-    setFormError(null);
-
+    setError("");
     try {
       const res = await fetch("/api/restaurant/locations", { cache: "no-store" });
-      if (!res.ok) {
-        const data = await safeJson(res);
-        throw new Error(data?.error || "Could not load locations.");
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json) {
+        setLocations([]);
+        setError("Could not load locations.");
+        return;
       }
 
-      const data = (await res.json()) as { locations: LocationRow[] } | LocationRow[];
-      const list = Array.isArray(data) ? data : data.locations;
-
-      setLocations(list ?? []);
-    } catch (e: any) {
-      setFormError(e?.message || "Could not load locations.");
+      const list = Array.isArray(json.locations) ? json.locations : [];
+      setLocations(list);
+    } catch {
+      setError("Could not load locations.");
     } finally {
       setLoading(false);
     }
@@ -47,155 +45,173 @@ export default function SettingsPage() {
     loadLocations();
   }, []);
 
-  async function onCreateLocation() {
-    setFormError(null);
+  async function addLocation() {
+    if (!name.trim()) return alert("Please enter a location name.");
 
-    const cleanName = name.trim();
-    const cleanTurnover = Number(turnover);
-
-    if (!cleanName) {
-      setFormError("Name is required.");
-      return;
-    }
-    if (!Number.isFinite(cleanTurnover) || cleanTurnover <= 0) {
-      setFormError("Turnover must be a positive number.");
-      return;
-    }
-
-    setSubmitting(true);
+    setSaving(true);
+    setError("");
     try {
       const res = await fetch("/api/restaurant/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: cleanName,
-          turnoverTime: cleanTurnover,
+          name: name.trim(),
+          turnoverTime: Number(turnoverTime),
         }),
       });
 
-      const data = await safeJson(res);
+      const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // Show real API error if available
-        setFormError(data?.error || "Could not create location.");
+        setError(json?.error || "Could not create location.");
         return;
       }
 
-      // ✅ Success: clear error, clear inputs, and append location immediately
-      setFormError(null);
       setName("");
-      setTurnover(60);
-
-      const created: LocationRow =
-        data?.location ?? data ?? {
-          id: crypto.randomUUID(),
-          name: cleanName,
-          slug: cleanName.toLowerCase().replace(/\s+/g, "-"),
-          turnoverTime: cleanTurnover,
-        };
-
-      setLocations((prev) => [created, ...prev]);
-    } catch (e: any) {
-      setFormError(e?.message || "Could not create location.");
+      setTurnoverTime(60);
+      await loadLocations();
+    } catch {
+      setError("Could not create location.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
-  return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <h1 className="text-2xl font-semibold">Settings</h1>
+  async function deleteLocation(id: string) {
+    const ok = confirm("Delete this location?");
+    if (!ok) return;
 
-      <div className="mt-4 inline-flex rounded-full bg-black px-4 py-2 text-sm font-medium text-white">
-        Locations
+    const res = await fetch(`/api/restaurant/locations?locationId=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      alert(json?.error || "Could not delete location.");
+      return;
+    }
+
+    await loadLocations();
+  }
+
+  async function updateTurnover(id: string, value: number) {
+    const res = await fetch(`/api/restaurant/locations/${id}/turnover`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turnoverTime: value }),
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      alert(json?.error || "Could not update turnover.");
+      return;
+    }
+
+    await loadLocations();
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
 
-      {formError ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {formError}
+      <div className="mb-6 flex">
+        <span className="rounded-xl bg-black px-3 py-2 text-sm text-white">Locations</span>
+      </div>
+
+      {error ? (
+        <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error}
         </div>
       ) : null}
 
       {/* Add location */}
-      <div className="mt-6 rounded-3xl border bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Add location</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="mb-6 rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="mb-1 text-lg font-semibold">Add location</div>
+        <div className="mb-5 text-sm text-muted-foreground">
           Create areas like Main Restaurant, Bar, Garden — and set how long a table stays locked after a booking.
-        </p>
+        </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="md:col-span-2">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium">Name</label>
             <Input
               value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (formError) setFormError(null);
-              }}
-              placeholder="e.g. Main Restaurant, Bar, Garden…"
-              className="mt-2"
+              onChange={(e: any) => setName(e.target.value)}
+              placeholder="e.g. Main Restaurant, Bar, Garden..."
             />
           </div>
 
-          <div>
+          <div className="space-y-2">
             <label className="text-sm font-medium">Turnover (min)</label>
             <Input
-              value={String(turnover)}
-              onChange={(e) => {
-                setTurnover(Number(e.target.value));
-                if (formError) setFormError(null);
-              }}
-              inputMode="numeric"
-              className="mt-2"
+              type="number"
+              value={turnoverTime}
+              onChange={(e: any) => setTurnoverTime(Number(e.target.value))}
+              min={5}
+              step={5}
             />
           </div>
         </div>
 
-        <div className="mt-5">
-          <Button onClick={onCreateLocation} disabled={submitting}>
-            {submitting ? "Adding..." : "Add location"}
+        <div className="mt-4 flex gap-2">
+          <Button onClick={addLocation} disabled={saving}>
+            {saving ? "Adding..." : "Add location"}
+          </Button>
+          <Button variant="outline" onClick={loadLocations} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
         </div>
       </div>
 
-      {/* Locations list */}
-      <div className="mt-6 rounded-3xl border bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Your locations</h2>
-          <Button variant="outline" onClick={loadLocations} disabled={loading}>
-            {loading ? "Loading..." : "Reload"}
-          </Button>
-        </div>
+      {/* List */}
+      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+        <div className="mb-4 text-lg font-semibold">Your locations</div>
 
-        {loading ? (
-          <div className="mt-4 text-sm text-muted-foreground">Loading locations…</div>
-        ) : locations.length === 0 ? (
-          <div className="mt-4 text-sm text-muted-foreground">
+        {locations.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
             No locations yet. Add one above (example: Bar / Garden).
           </div>
         ) : (
-          <div className="mt-4 space-y-3">
-            {locations.map((loc) => (
+          <div className="space-y-3">
+            {locations.map((l) => (
               <div
-                key={loc.id}
-                className="flex flex-col gap-3 rounded-2xl border p-4 md:flex-row md:items-center md:justify-between"
+                key={l.id}
+                className="rounded-2xl border p-4"
               >
-                <div>
-                  <div className="font-medium">{loc.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    Turnover: {loc.turnoverTime} min
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold">{l.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Turnover: {l.turnoverTime ?? 90} min
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-3">
-                  <Link
-                    href={`/staff/dashboard/settings/locations/${loc.id}`}
-                    className="text-sm font-medium underline underline-offset-4"
-                  >
-                    Manage
-                  </Link>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Turnover</span>
+                      <Input
+                        type="number"
+                        className="w-[140px]"
+                        min={5}
+                        step={5}
+                        defaultValue={l.turnoverTime ?? 90}
+                        onBlur={(e: any) => updateTurnover(l.id, Number(e.target.value))}
+                      />
+                      <span className="text-xs text-muted-foreground">min</span>
+                    </div>
 
-                  {/* Keep delete if you already have it elsewhere; otherwise we can add it next */}
+                    <Button
+                      variant="outline"
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => deleteLocation(l.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -204,12 +220,4 @@ export default function SettingsPage() {
       </div>
     </div>
   );
-}
-
-async function safeJson(res: Response) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
 }
