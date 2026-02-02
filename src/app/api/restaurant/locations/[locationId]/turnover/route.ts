@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 
-// PUT: Update turnover time for a location
+// PUT: Update turnover time
 export async function PUT(
   req: Request,
   props: { params: Promise<{ locationId: string }> }
 ) {
   try {
-    // FIX: Await params
+    // FIX: Await the params object
     const params = await props.params;
     const { locationId } = params;
 

@@ -3,13 +3,16 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 import { prisma } from "@/lib/db/prisma";
 
-// PUT: Update Location (Name + Turnover)
-export async function PUT(req: Request, props: { params: Promise<{ locationId: string }> }) {
+// PUT: Update Location Name & Turnover
+export async function PUT(
+  req: Request,
+  props: { params: Promise<{ locationId: string }> }
+) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const params = await props.params; // AWAIT PARAMS
+    const params = await props.params;
     const body = await req.json();
     const { name, turnoverTime } = body;
 
@@ -27,20 +30,25 @@ export async function PUT(req: Request, props: { params: Promise<{ locationId: s
   }
 }
 
-// DELETE: Delete Location
-export async function DELETE(req: Request, props: { params: Promise<{ locationId: string }> }) {
+// DELETE: Delete a Location
+export async function DELETE(
+  req: Request,
+  props: { params: Promise<{ locationId: string }> }
+) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const params = await props.params; // AWAIT PARAMS
+    const params = await props.params;
     
+    // Perform the delete
     await prisma.location.delete({
       where: { id: params.locationId },
     });
 
     return NextResponse.json({ success: true });
   } catch (e) {
+    console.error("Delete error:", e);
     return NextResponse.json({ error: "Delete failed" }, { status: 500 });
   }
 }
