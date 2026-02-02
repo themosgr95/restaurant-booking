@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")  // <--- Keep this exactly as "DATABASE_URL"
+  url      = env("DATABASE_URL")
 }
 
 enum SpecialRuleType {
@@ -21,7 +21,7 @@ model User {
   emailVerified DateTime?
   image         String?
 
-  password      String?   // Allows null for Google Logins
+  password      String?
   role          String    @default("STAFF") // STAFF, OWNER, ADMIN
 
   accounts      Account[]
@@ -57,8 +57,7 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -77,15 +76,13 @@ model Location {
   slug         String   @unique
   description  String?
 
-  // Turnover duration in minutes (used by booking wizard to lock tables)
   turnoverTime Int      @default(90)
 
   tables       Table[]
   memberships  Membership[]
   bookings     Booking[]
-  openingHours OpeningHour[]
 
-  // ✅ NEW: replaces SpecialClosure
+  openingHours OpeningHour[]
   specialRules SpecialRule[]
 
   createdAt    DateTime @default(now())
@@ -124,35 +121,33 @@ model Booking {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // --- Booking Info ---
   date          DateTime
-  time          String    // e.g. "18:30"
+  time          String
   guests        Int
-  status        String    @default("CONFIRMED") // PENDING, CONFIRMED, CANCELLED
+  status        String   @default("CONFIRMED")
 
-  // --- Customer Info ---
   customerName  String
   customerEmail String?
   customerPhone String?
   notes         String?
 
-  // --- Relations ---
   locationId    String
-  location      Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  location      Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
   tableId       String?
-  table         Table?    @relation(fields: [tableId], references: [id])
+  table         Table?   @relation(fields: [tableId], references: [id])
 
   userId        String?
-  user          User?     @relation(fields: [userId], references: [id])
+  user          User?    @relation(fields: [userId], references: [id])
 }
 
 model OpeningHour {
-  id        String   @id @default(cuid())
-  dayOfWeek Int      // 0=Sunday, 1=Monday...
-  isOpen    Boolean  @default(true)
-  openTime  String   // "09:00"
-  closeTime String   // "22:00"
+  id        String  @id @default(cuid())
+  dayOfWeek Int     // 0=Sunday ... 6=Saturday
+  isClosed  Boolean @default(false)
+
+  openTime  String? // "09:00" (nullable if closed)
+  closeTime String? // "22:00" (nullable if closed)
 
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
@@ -160,27 +155,20 @@ model OpeningHour {
   @@unique([locationId, dayOfWeek])
 }
 
-// ✅ NEW MODEL (replaces SpecialClosure)
-// Supports:
-// - Closed date ranges (01-02 to 15-02)
-// - Special hours date ranges (e.g. holiday hours)
 model SpecialRule {
   id        String          @id @default(cuid())
   type      SpecialRuleType
 
-  // Date range (supports a single day by having startDate = endDate)
   startDate DateTime        @db.Date
   endDate   DateTime        @db.Date
 
-  // Only used when type = SPECIAL_HOURS
   openTime  String?
   closeTime String?
 
   note      String?
 
   locationId String
-  location   Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  createdAt DateTime @default(now())
 }
