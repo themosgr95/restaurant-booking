@@ -12,162 +12,92 @@ function slugify(input: string) {
     .replace(/-+/g, "-");
 }
 
-async function requireUserEmail() {
+export async function GET(_req: NextRequest) {
   const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-  if (!email) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  return { email };
-}
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-/**
- * GET /api/restaurant/locations
- * Returns all locations the logged-in user is a member of.
- */
-export async function GET() {
-  const auth = await requireUserEmail();
-  if ("error" in auth) return auth.error;
-
-  const memberships = await prisma.membership.findMany({
-    where: { user: { email: auth.email } },
-    include: { location: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const locations = memberships.map((m) => m.location);
-  return NextResponse.json({ locations });
-}
-
-/**
- * POST /api/restaurant/locations
- * Body: { name: string, turnoverTime?: number }
- */
-export async function POST(req: NextRequest) {
-  const auth = await requireUserEmail();
-  if ("error" in auth) return auth.error;
-
-  let body: any = {};
   try {
-    body = await req.json();
-  } catch {
-    // ignore
-  }
-
-  const name = String(body?.name ?? "").trim();
-  const turnoverTimeRaw = body?.turnoverTime;
-  const turnoverTime = Number.isFinite(turnoverTimeRaw) ? Number(turnoverTimeRaw) : 90;
-
-  if (!name) {
-    return NextResponse.json({ error: "Name is required" }, { status: 400 });
-  }
-  if (turnoverTime < 5 || turnoverTime > 600) {
-    return NextResponse.json({ error: "Turnover must be between 5 and 600 minutes" }, { status: 400 });
-  }
-
-  // find current user
-  const user = await prisma.user.findFirst({ where: { email: auth.email } });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
-
-  // create unique slug
-  const base = slugify(name) || "location";
-  let slug = base;
-  let i = 1;
-  while (true) {
-    const existing = await prisma.location.findUnique({ where: { slug } });
-    if (!existing) break;
-    i += 1;
-    slug = `${base}-${i}`;
-  }
-
-  const location = await prisma.location.create({
-    data: {
-      name,
-      slug,
-      turnoverTime,
-      memberships: {
-        create: {
-          userId: user.id,
-          role: "OWNER",
+    // Return only locations where the logged-in user is a member
+    const memberships = await prisma.membership.findMany({
+      where: { user: { email: session.user.email } },
+      select: {
+        location: {
+          select: { id: true, name: true, turnoverTime: true },
         },
       },
-    },
-  });
+      orderBy: { createdAt: "desc" as any }, // if createdAt doesn't exist, Prisma will complain at dev-time
+    });
 
-  return NextResponse.json({ location }, { status: 201 });
+    const locations = memberships.map((m) => m.location);
+    return NextResponse.json({ locations });
+  } catch {
+    return NextResponse.json({ error: "Could not load locations." }, { status: 500 });
+  }
 }
 
-/**
- * PATCH /api/restaurant/locations
- * Body: { id: string, name?: string, turnoverTime?: number }
- */
-export async function PATCH(req: NextRequest) {
-  const auth = await requireUserEmail();
-  if ("error" in auth) return auth.error;
-
-  const body = await req.json();
-  const id = String(body?.id ?? "").trim();
-  const name = body?.name != null ? String(body.name).trim() : undefined;
-  const turnoverTime = body?.turnoverTime != null ? Number(body.turnoverTime) : undefined;
-
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-  if (turnoverTime != null && (!Number.isFinite(turnoverTime) || turnoverTime < 5 || turnoverTime > 600)) {
-    return NextResponse.json({ error: "Turnover must be between 5 and 600 minutes" }, { status: 400 });
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (name != null && !name) return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
 
-  // must be member of this location
-  const membership = await prisma.membership.findFirst({
-    where: { locationId: id, user: { email: auth.email } },
-    select: { role: true },
-  });
-  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const body = await req.json().catch(() => ({} as any));
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const turnoverTime = Number(body?.turnoverTime ?? 60);
 
-  // If name changes, also update slug (keep unique)
-  let slug: string | undefined = undefined;
-  if (name != null) {
-    const base = slugify(name) || "location";
-    slug = base;
-    let i = 1;
-    while (true) {
-      const existing = await prisma.location.findUnique({ where: { slug } });
-      if (!existing || existing.id === id) break;
-      i += 1;
-      slug = `${base}-${i}`;
+  if (name.length < 2) {
+    return NextResponse.json({ error: "Name must be at least 2 characters." }, { status: 400 });
+  }
+
+  if (!Number.isFinite(turnoverTime) || turnoverTime < 10 || turnoverTime > 600) {
+    return NextResponse.json({ error: "Turnover must be between 10 and 600." }, { status: 400 });
+  }
+
+  try {
+    const email = session.user.email;
+
+    // Ensure user exists
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
+
+    const base = slugify(name);
+    const slug = `${base}-${Date.now().toString(36)}`;
+
+    // Create location + membership so you can manage it immediately
+    const created = await prisma.$transaction(async (tx) => {
+      const location = await tx.location.create({
+        data: {
+          name,
+          slug,
+          turnoverTime,
+        },
+        select: { id: true, name: true, turnoverTime: true },
+      });
+
+      // membership model may have extra fields; this is the safest "connect" style
+      await tx.membership.create({
+        data: {
+          user: { connect: { id: user.id } },
+          location: { connect: { id: location.id } },
+        } as any,
+      });
+
+      return location;
+    });
+
+    return NextResponse.json({ location: created });
+  } catch {
+    return NextResponse.json({ error: "Could not create location." }, { status: 500 });
   }
-
-  const updated = await prisma.location.update({
-    where: { id },
-    data: {
-      ...(name != null ? { name, slug } : {}),
-      ...(turnoverTime != null ? { turnoverTime } : {}),
-    },
-  });
-
-  return NextResponse.json({ location: updated });
 }
 
-/**
- * DELETE /api/restaurant/locations?id=...
- */
-export async function DELETE(req: NextRequest) {
-  const auth = await requireUserEmail();
-  if ("error" in auth) return auth.error;
-
-  const id = req.nextUrl.searchParams.get("id")?.trim();
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
-
-  const membership = await prisma.membership.findFirst({
-    where: { locationId: id, user: { email: auth.email } },
-    select: { role: true },
-  });
-
-  if (!membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (membership.role !== "OWNER") {
-    return NextResponse.json({ error: "Only OWNER can delete a location" }, { status: 403 });
-  }
-
-  await prisma.location.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
-}
+// ❌ DO NOT export PATCH here.
+// PATCH belongs ONLY in: /api/restaurant/locations/[locationId]/route.ts

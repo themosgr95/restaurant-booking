@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Save,
+  AlertTriangle,
+  CheckCircle2,
   Clock,
   MapPin,
-  Trash2,
-  Plus,
-  CheckCircle2,
-  AlertTriangle,
   Pencil,
+  Plus,
+  Save,
+  Trash2,
 } from "lucide-react";
 
 type LocationRow = {
@@ -20,48 +20,34 @@ type LocationRow = {
   turnoverTime: number;
 };
 
-function extractLocation(payload: any): LocationRow | null {
-  if (!payload) return null;
-
-  // some APIs return { location: {...} }
-  if (payload.location?.id) return payload.location as LocationRow;
-
-  // some APIs return the location directly
-  if (payload.id) return payload as LocationRow;
-
-  return null;
-}
+type ApiLocationResponse =
+  | { location: LocationRow }
+  | { success: true }
+  | { error: string };
 
 export default function SettingsView({ locations }: { locations: LocationRow[] }) {
   const router = useRouter();
 
-  // local list so UI updates instantly
+  // local list (so we update instantly without a refresh button)
   const [items, setItems] = useState<LocationRow[]>(locations ?? []);
+  useEffect(() => setItems(locations ?? []), [locations]);
 
-  useEffect(() => {
-    setItems(locations ?? []);
-  }, [locations]);
-
-  // Add form state
+  // add form
   const [newLocName, setNewLocName] = useState("");
   const [newTurnover, setNewTurnover] = useState<number>(60);
 
-  // Draft edit state
+  // edit drafts
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const [draftTurnovers, setDraftTurnovers] = useState<Record<string, number>>({});
 
-  // Loading & messages
+  // busy + toasts
   const [busyId, setBusyId] = useState<string | null>(null);
   const [globalBusy, setGlobalBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const canAdd = useMemo(() => {
-    const nameOk = newLocName.trim().length >= 2;
-    const turnoverOk =
-      Number.isFinite(newTurnover) && newTurnover >= 10 && newTurnover <= 600;
-    return nameOk && turnoverOk && !globalBusy;
-  }, [newLocName, newTurnover, globalBusy]);
+  // field errors (shown next to fields)
+  const [fieldErr, setFieldErr] = useState<{ name?: string; turnover?: string }>({});
 
   function showOk(msg: string) {
     setOkMsg(msg);
@@ -70,54 +56,59 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
 
   function showErr(msg: string) {
     setErrorMsg(msg);
-    setTimeout(() => setErrorMsg(null), 3500);
+    setTimeout(() => setErrorMsg(null), 4000);
   }
 
-  async function handleAddLocation() {
-    if (!canAdd) return;
+  const canAdd = useMemo(() => {
+    const name = newLocName.trim();
+    const turnoverOk = Number.isFinite(newTurnover) && newTurnover >= 10 && newTurnover <= 600;
+    return name.length >= 2 && turnoverOk && !globalBusy;
+  }, [newLocName, newTurnover, globalBusy]);
 
-    setGlobalBusy(true);
+  async function handleAddLocation() {
     setErrorMsg(null);
     setOkMsg(null);
+
+    const name = newLocName.trim();
+    const turnover = Number(newTurnover);
+
+    const nextFieldErr: typeof fieldErr = {};
+    if (name.length < 2) nextFieldErr.name = "Name must be at least 2 characters.";
+    if (!Number.isFinite(turnover) || turnover < 10 || turnover > 600)
+      nextFieldErr.turnover = "Turnover must be between 10 and 600.";
+
+    setFieldErr(nextFieldErr);
+    if (Object.keys(nextFieldErr).length) return;
+
+    setGlobalBusy(true);
 
     try {
       const res = await fetch("/api/restaurant/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newLocName.trim(),
-          turnoverTime: Number(newTurnover),
-        }),
+        body: JSON.stringify({ name, turnoverTime: turnover }),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = (await res.json().catch(() => null)) as ApiLocationResponse | null;
 
       if (!res.ok) {
-        showErr(data?.error ?? "Could not create location.");
+        showErr((data as any)?.error ?? "Could not create location.");
         return;
       }
 
-      const created = extractLocation(data);
-
-      if (!created) {
-        // fallback: refresh server data if API response shape is unexpected
-        showOk("Created ✅");
-        setNewLocName("");
-        setNewTurnover(60);
-        router.refresh();
+      const created = (data as any)?.location as LocationRow | undefined;
+      if (!created?.id) {
+        showErr("Created location, but response was unexpected.");
         return;
       }
 
-      // instantly show it
       setItems((prev) => [created, ...prev]);
-
-      // reset form
       setNewLocName("");
       setNewTurnover(60);
+      setFieldErr({});
+      showOk(`Created "${created.name}"`);
 
-      showOk(`Created "${created.name}" ✅`);
-
-      // keep server data in sync too
+      // keep server components synced
       router.refresh();
     } catch {
       showErr("Network error. Please try again.");
@@ -126,13 +117,7 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
     }
   }
 
-  async function handleSaveName(locationId: string) {
-    const current = items.find((x) => x.id === locationId);
-    const newName = (draftNames[locationId] ?? current?.name ?? "").trim();
-
-    if (!current) return;
-    if (newName.length < 2 || newName === current.name) return;
-
+  async function savePatch(locationId: string, patch: Partial<Pick<LocationRow, "name" | "turnoverTime">>) {
     setBusyId(locationId);
     setErrorMsg(null);
     setOkMsg(null);
@@ -141,85 +126,69 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
       const res = await fetch(`/api/restaurant/locations/${locationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify(patch),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = (await res.json().catch(() => null)) as ApiLocationResponse | null;
 
       if (!res.ok) {
-        showErr(data?.error ?? "Could not update name.");
-        return;
+        showErr((data as any)?.error ?? "Could not save changes.");
+        return null;
       }
 
-      const updated = extractLocation(data);
-      const updatedName = updated?.name ?? newName;
+      const updated = (data as any)?.location as LocationRow | undefined;
+      if (!updated?.id) {
+        showErr("Saved, but response was unexpected.");
+        return null;
+      }
 
-      setItems((prev) =>
-        prev.map((x) => (x.id === locationId ? { ...x, name: updatedName } : x))
-      );
-
-      setDraftNames((prev) => {
-        const copy = { ...prev };
-        delete copy[locationId];
-        return copy;
-      });
-
-      showOk("Name saved ✅");
+      setItems((prev) => prev.map((x) => (x.id === locationId ? updated : x)));
       router.refresh();
+      return updated;
     } catch {
       showErr("Network error. Please try again.");
+      return null;
     } finally {
       setBusyId(null);
     }
   }
 
-  async function handleSaveTurnover(locationId: string) {
+  async function handleSaveName(locationId: string) {
     const current = items.find((x) => x.id === locationId);
-    const newVal = draftTurnovers[locationId];
-
     if (!current) return;
-    if (newVal === undefined || newVal === current.turnoverTime) return;
-    if (!Number.isFinite(newVal) || newVal < 10 || newVal > 600) return;
 
-    setBusyId(locationId);
-    setErrorMsg(null);
-    setOkMsg(null);
+    const nextName = (draftNames[locationId] ?? current.name).trim();
+    if (nextName.length < 2) return showErr("Name must be at least 2 characters.");
+    if (nextName === current.name) return;
 
-    try {
-      const res = await fetch(`/api/restaurant/locations/${locationId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ turnoverTime: Number(newVal) }),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        showErr(data?.error ?? "Could not update turnover.");
-        return;
-      }
-
-      const updated = extractLocation(data);
-      const updatedTurnover = updated?.turnoverTime ?? Number(newVal);
-
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === locationId ? { ...x, turnoverTime: updatedTurnover } : x
-        )
-      );
-
-      setDraftTurnovers((prev) => {
-        const copy = { ...prev };
+    const updated = await savePatch(locationId, { name: nextName });
+    if (updated) {
+      setDraftNames((p) => {
+        const copy = { ...p };
         delete copy[locationId];
         return copy;
       });
+      showOk("Name saved");
+    }
+  }
 
-      showOk("Turnover saved ✅");
-      router.refresh();
-    } catch {
-      showErr("Network error. Please try again.");
-    } finally {
-      setBusyId(null);
+  async function handleSaveTurnover(locationId: string) {
+    const current = items.find((x) => x.id === locationId);
+    if (!current) return;
+
+    const nextVal = draftTurnovers[locationId];
+    if (nextVal === undefined || nextVal === current.turnoverTime) return;
+    if (!Number.isFinite(nextVal) || nextVal < 10 || nextVal > 600)
+      return showErr("Turnover must be between 10 and 600.");
+
+    const updated = await savePatch(locationId, { turnoverTime: Number(nextVal) });
+    if (updated) {
+      setDraftTurnovers((p) => {
+        const copy = { ...p };
+        delete copy[locationId];
+        return copy;
+      });
+      showOk("Turnover saved");
     }
   }
 
@@ -235,20 +204,19 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
     setOkMsg(null);
 
     try {
-      // ✅ correct endpoint (NOT ?id=...)
       const res = await fetch(`/api/restaurant/locations/${locationId}`, {
         method: "DELETE",
       });
 
-      const data = await res.json().catch(() => null);
+      const data = (await res.json().catch(() => null)) as ApiLocationResponse | null;
 
       if (!res.ok) {
-        showErr(data?.error ?? "Could not delete location.");
+        showErr((data as any)?.error ?? "Could not delete location.");
         return;
       }
 
       setItems((prev) => prev.filter((x) => x.id !== locationId));
-      showOk("Deleted ✅");
+      showOk("Deleted");
       router.refresh();
     } catch {
       showErr("Network error. Please try again.");
@@ -274,7 +242,6 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
           <div className="text-sm font-semibold">{errorMsg}</div>
         </div>
       )}
-
       {okMsg && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-start gap-2">
           <CheckCircle2 className="w-5 h-5 mt-0.5" />
@@ -293,13 +260,14 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
             </label>
             <input
               id="new-location-name"
-              name="locationName"
+              name="new-location-name"
               value={newLocName}
               onChange={(e) => setNewLocName(e.target.value)}
               placeholder="e.g. Main Restaurant, Bar, Garden..."
               className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 font-semibold outline-none focus:border-black"
               autoComplete="off"
             />
+            {fieldErr.name && <div className="mt-1 text-xs font-bold text-red-600">{fieldErr.name}</div>}
           </div>
 
           <div>
@@ -308,7 +276,7 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
             </label>
             <input
               id="new-location-turnover"
-              name="turnoverTime"
+              name="new-location-turnover"
               type="number"
               min={10}
               max={600}
@@ -316,6 +284,9 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
               onChange={(e) => setNewTurnover(Number(e.target.value))}
               className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 font-semibold outline-none focus:border-black"
             />
+            {fieldErr.turnover && (
+              <div className="mt-1 text-xs font-bold text-red-600">{fieldErr.turnover}</div>
+            )}
           </div>
         </div>
 
@@ -361,26 +332,25 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
                   className="rounded-2xl border border-gray-200 p-4 flex flex-col gap-4 hover:shadow-sm transition"
                 >
                   <div className="flex flex-col md:flex-row md:items-center gap-3">
-                    {/* Left */}
+                    {/* Name */}
                     <div className="flex items-center gap-3 flex-1">
                       <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center text-gray-600">
                         <MapPin className="w-5 h-5" />
                       </div>
 
                       <div className="w-full">
-                        <div className="text-xs font-bold text-gray-500 mb-1">Location name</div>
+                        <label htmlFor={`loc-name-${loc.id}`} className="text-xs font-bold text-gray-500 mb-1 block">
+                          Location name
+                        </label>
                         <div className="flex items-center gap-2">
                           <input
                             id={`loc-name-${loc.id}`}
-                            name={`locName-${loc.id}`}
+                            name={`loc-name-${loc.id}`}
                             value={nameDraft}
-                            onChange={(e) =>
-                              setDraftNames((p) => ({ ...p, [loc.id]: e.target.value }))
-                            }
+                            onChange={(e) => setDraftNames((p) => ({ ...p, [loc.id]: e.target.value }))}
                             className="w-full rounded-xl border border-gray-200 px-3 py-2 font-bold outline-none focus:border-black"
                             autoComplete="off"
                           />
-
                           <button
                             onClick={() => handleSaveName(loc.id)}
                             disabled={!nameChanged || busyId === loc.id}
@@ -397,27 +367,30 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
                       </div>
                     </div>
 
-                    {/* Right */}
+                    {/* Turnover */}
                     <div className="w-full md:w-auto">
-                      <div className="text-xs font-bold text-gray-500 mb-1">Turnover (min)</div>
+                      <label
+                        htmlFor={`loc-turnover-${loc.id}`}
+                        className="text-xs font-bold text-gray-500 mb-1 block"
+                      >
+                        Turnover (min)
+                      </label>
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
                           <Clock className="w-4 h-4 text-gray-400" />
                           <input
                             id={`loc-turnover-${loc.id}`}
-                            name={`locTurnover-${loc.id}`}
+                            name={`loc-turnover-${loc.id}`}
                             type="number"
                             min={10}
                             max={600}
                             value={turnoverDraft}
                             onChange={(e) =>
-                              setDraftTurnovers((p) => ({
-                                ...p,
-                                [loc.id]: Number(e.target.value),
-                              }))
+                              setDraftTurnovers((p) => ({ ...p, [loc.id]: Number(e.target.value) }))
                             }
                             className="w-20 font-bold outline-none text-gray-900"
                           />
+                          <span className="text-xs font-bold text-gray-500">min</span>
                         </div>
 
                         <button
