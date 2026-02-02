@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Save, Clock, MapPin, Trash2, Plus, CheckCircle2, AlertTriangle, Pencil } from "lucide-react";
+import {
+  Save,
+  Clock,
+  MapPin,
+  Trash2,
+  Plus,
+  CheckCircle2,
+  AlertTriangle,
+  Pencil,
+} from "lucide-react";
 
 type LocationRow = {
   id: string;
@@ -11,10 +20,22 @@ type LocationRow = {
   turnoverTime: number;
 };
 
+function extractLocation(payload: any): LocationRow | null {
+  if (!payload) return null;
+
+  // some APIs return { location: {...} }
+  if (payload.location?.id) return payload.location as LocationRow;
+
+  // some APIs return the location directly
+  if (payload.id) return payload as LocationRow;
+
+  return null;
+}
+
 export default function SettingsView({ locations }: { locations: LocationRow[] }) {
   const router = useRouter();
 
-  // Local list so we can update instantly (no Refresh button)
+  // local list so UI updates instantly
   const [items, setItems] = useState<LocationRow[]>(locations ?? []);
 
   useEffect(() => {
@@ -25,7 +46,7 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
   const [newLocName, setNewLocName] = useState("");
   const [newTurnover, setNewTurnover] = useState<number>(60);
 
-  // Edit state for existing locations
+  // Draft edit state
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const [draftTurnovers, setDraftTurnovers] = useState<Record<string, number>>({});
 
@@ -37,7 +58,8 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
 
   const canAdd = useMemo(() => {
     const nameOk = newLocName.trim().length >= 2;
-    const turnoverOk = Number.isFinite(newTurnover) && newTurnover >= 10 && newTurnover <= 600;
+    const turnoverOk =
+      Number.isFinite(newTurnover) && newTurnover >= 10 && newTurnover <= 600;
     return nameOk && turnoverOk && !globalBusy;
   }, [newLocName, newTurnover, globalBusy]);
 
@@ -75,9 +97,18 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
         return;
       }
 
-      const created: LocationRow = data.location;
+      const created = extractLocation(data);
 
-      // instantly show it (no refresh needed)
+      if (!created) {
+        // fallback: refresh server data if API response shape is unexpected
+        showOk("Created ✅");
+        setNewLocName("");
+        setNewTurnover(60);
+        router.refresh();
+        return;
+      }
+
+      // instantly show it
       setItems((prev) => [created, ...prev]);
 
       // reset form
@@ -86,7 +117,7 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
 
       showOk(`Created "${created.name}" ✅`);
 
-      // optional: keep server components in sync
+      // keep server data in sync too
       router.refresh();
     } catch {
       showErr("Network error. Please try again.");
@@ -120,7 +151,13 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
         return;
       }
 
-      setItems((prev) => prev.map((x) => (x.id === locationId ? { ...x, name: data.location.name } : x)));
+      const updated = extractLocation(data);
+      const updatedName = updated?.name ?? newName;
+
+      setItems((prev) =>
+        prev.map((x) => (x.id === locationId ? { ...x, name: updatedName } : x))
+      );
+
       setDraftNames((prev) => {
         const copy = { ...prev };
         delete copy[locationId];
@@ -162,8 +199,13 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
         return;
       }
 
+      const updated = extractLocation(data);
+      const updatedTurnover = updated?.turnoverTime ?? Number(newVal);
+
       setItems((prev) =>
-        prev.map((x) => (x.id === locationId ? { ...x, turnoverTime: data.location.turnoverTime } : x))
+        prev.map((x) =>
+          x.id === locationId ? { ...x, turnoverTime: updatedTurnover } : x
+        )
       );
 
       setDraftTurnovers((prev) => {
@@ -193,7 +235,8 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
     setOkMsg(null);
 
     try {
-      const res = await fetch(`/api/restaurant/locations?id=${encodeURIComponent(locationId)}`, {
+      // ✅ correct endpoint (NOT ?id=...)
+      const res = await fetch(`/api/restaurant/locations/${locationId}`, {
         method: "DELETE",
       });
 
@@ -231,6 +274,7 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
           <div className="text-sm font-semibold">{errorMsg}</div>
         </div>
       )}
+
       {okMsg && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 flex items-start gap-2">
           <CheckCircle2 className="w-5 h-5 mt-0.5" />
@@ -244,17 +288,27 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="md:col-span-2">
-            <label className="text-xs font-bold text-gray-500">Name</label>
+            <label htmlFor="new-location-name" className="text-xs font-bold text-gray-500">
+              Name
+            </label>
             <input
+              id="new-location-name"
+              name="locationName"
               value={newLocName}
               onChange={(e) => setNewLocName(e.target.value)}
               placeholder="e.g. Main Restaurant, Bar, Garden..."
               className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-3 font-semibold outline-none focus:border-black"
+              autoComplete="off"
             />
           </div>
+
           <div>
-            <label className="text-xs font-bold text-gray-500">Turnover (min)</label>
+            <label htmlFor="new-location-turnover" className="text-xs font-bold text-gray-500">
+              Turnover (min)
+            </label>
             <input
+              id="new-location-turnover"
+              name="turnoverTime"
               type="number"
               min={10}
               max={600}
@@ -317,10 +371,16 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
                         <div className="text-xs font-bold text-gray-500 mb-1">Location name</div>
                         <div className="flex items-center gap-2">
                           <input
+                            id={`loc-name-${loc.id}`}
+                            name={`locName-${loc.id}`}
                             value={nameDraft}
-                            onChange={(e) => setDraftNames((p) => ({ ...p, [loc.id]: e.target.value }))}
+                            onChange={(e) =>
+                              setDraftNames((p) => ({ ...p, [loc.id]: e.target.value }))
+                            }
                             className="w-full rounded-xl border border-gray-200 px-3 py-2 font-bold outline-none focus:border-black"
+                            autoComplete="off"
                           />
+
                           <button
                             onClick={() => handleSaveName(loc.id)}
                             disabled={!nameChanged || busyId === loc.id}
@@ -344,12 +404,17 @@ export default function SettingsView({ locations }: { locations: LocationRow[] }
                         <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
                           <Clock className="w-4 h-4 text-gray-400" />
                           <input
+                            id={`loc-turnover-${loc.id}`}
+                            name={`locTurnover-${loc.id}`}
                             type="number"
                             min={10}
                             max={600}
                             value={turnoverDraft}
                             onChange={(e) =>
-                              setDraftTurnovers((p) => ({ ...p, [loc.id]: Number(e.target.value) }))
+                              setDraftTurnovers((p) => ({
+                                ...p,
+                                [loc.id]: Number(e.target.value),
+                              }))
                             }
                             className="w-20 font-bold outline-none text-gray-900"
                           />
